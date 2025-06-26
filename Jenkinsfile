@@ -198,7 +198,7 @@ pipeline {
                         
                         // ECR Login
                         sh """
-                            aws ecr get-login-password --region ${env.AWS_REGION} | ${dockerCmd} login --username AWS --password-stdin ${env.ECR_REGISTRY}
+                            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 112113402575.dkr.ecr.us-east-1.amazonaws.com
                         """
                         
                         echo "✅ ECR login successful"
