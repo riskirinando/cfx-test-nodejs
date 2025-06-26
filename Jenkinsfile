@@ -221,11 +221,22 @@ pipeline {
         
                     // 5. Tag and push Docker image
                     def dockerCmd = env.DOCKER_CMD ?: "docker" // or sudo docker if needed
+                    def imageName = "${env.ECR_REPOSITORY}"
+                    def imageTag = "${env.BUILD_NUMBER}"
+                    def fullImageUri = "${ECR_REGISTRY}/${imageName}:${imageTag}"
+                    def latestImageUri = "${ECR_REGISTRY}/${imageName}:latest"
+                    
                     sh """
-                        ${dockerCmd} tag cfx-test-nodejs ${FULL_IMAGE_URI}
-                        ${dockerCmd} tag cfx-test-nodejs ${ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
-                        ${dockerCmd} push ${FULL_IMAGE_URI}
-                        ${dockerCmd} push ${ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
+                        # Build the image with both tags
+                        ${dockerCmd} build -t ${imageName}:${imageTag} -t ${imageName}:latest .
+                    
+                        # Tag both for ECR
+                        ${dockerCmd} tag ${imageName}:${imageTag} ${fullImageUri}
+                        ${dockerCmd} tag ${imageName}:latest ${latestImageUri}
+                    
+                        # Push both tags to ECR
+                        ${dockerCmd} push ${fullImageUri}
+                        ${dockerCmd} push ${latestImageUri}
                     """
         
                     echo "✅ Image pushed to ECR successfully"
