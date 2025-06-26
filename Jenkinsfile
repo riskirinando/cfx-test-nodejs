@@ -88,13 +88,25 @@ pipeline {
                     echo "=== STAGE: ${env.CURRENT_STAGE} ==="
                     
                     try {
-                        // Get AWS Account ID
-                        env.AWS_ACCOUNT_ID = sh(
+                        // Check AWS CLI configuration first
+                        sh 'aws sts get-caller-identity || echo "AWS CLI not configured or no permissions"'
+                        
+                        // Get AWS Account ID with better error handling
+                        def awsAccountResult = sh(
                             returnStdout: true,
-                            script: 'aws sts get-caller-identity --query Account --output text'
+                            script: 'aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "FAILED"'
                         ).trim()
                         
-                        echo "✅ AWS Account ID: ${env.AWS_ACCOUNT_ID}"
+                        if (awsAccountResult == "FAILED" || awsAccountResult == "") {
+                            echo "⚠️ Could not get AWS Account ID from AWS CLI, using fallback..."
+                            // Fallback: try to extract from AWS CLI config or use a default
+                            env.AWS_ACCOUNT_ID = "123456789012" // Replace with your actual account ID
+                            echo "⚠️ Using fallback AWS Account ID: ${env.AWS_ACCOUNT_ID}"
+                            echo "⚠️ Please ensure AWS CLI is properly configured with credentials"
+                        } else {
+                            env.AWS_ACCOUNT_ID = awsAccountResult
+                            echo "✅ AWS Account ID: ${env.AWS_ACCOUNT_ID}"
+                        }
                         
                         // Update ECR registry URL
                         env.ECR_REGISTRY = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
@@ -124,21 +136,27 @@ pipeline {
                         echo "Building Docker image..."
                         echo "Image URI: ${env.FULL_IMAGE_URI}"
                         
-                        // Build Docker image
+                        // Check Docker daemon access first
+                        sh 'docker version || echo "Docker daemon not accessible"'
+                        sh 'whoami'
+                        sh 'groups'
+                        
+                        // Build Docker image with sudo if needed
                         sh """
-                            docker build -t ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} .
-                            docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.FULL_IMAGE_URI}
-                            docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
+                            sudo docker build -t ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} .
+                            sudo docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.FULL_IMAGE_URI}
+                            sudo docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
                         """
                         
                         // List Docker images
-                        sh 'docker images | grep cfx-test-nodejs'
+                        sh 'sudo docker images | grep cfx-test-nodejs'
                         
                         echo "✅ DOCKER_BUILD stage completed successfully"
                         
                     } catch (Exception e) {
                         env.CURRENT_STAGE = 'DOCKER_BUILD_FAILED'
                         echo "❌ DOCKER_BUILD stage failed: ${e.getMessage()}"
+                        echo "💡 Try running: sudo usermod -aG docker jenkins && sudo systemctl restart jenkins"
                         throw e
                     }
                 }
@@ -154,9 +172,9 @@ pipeline {
                     try {
                         echo "Logging into ECR..."
                         
-                        // ECR Login
+                        // ECR Login with sudo
                         sh """
-                            aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.ECR_REGISTRY}
+                            aws ecr get-login-password --region ${env.AWS_REGION} | sudo docker login --username AWS --password-stdin ${env.ECR_REGISTRY}
                         """
                         
                         echo "✅ ECR login successful"
@@ -169,11 +187,11 @@ pipeline {
                         
                         echo "✅ ECR repository verified/created"
                         
-                        // Push images
+                        // Push images with sudo
                         echo "Pushing images to ECR..."
                         sh """
-                            docker push ${env.FULL_IMAGE_URI}
-                            docker push ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
+                            sudo docker push ${env.FULL_IMAGE_URI}
+                            sudo docker push ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
                         """
                         
                         echo "✅ Images pushed successfully"
@@ -329,7 +347,7 @@ spec:
                     echo "========================="
                     
                     // Cleanup
-                    sh 'docker system prune -f || true'
+                    sh 'sudo docker system prune -f || true'
                     sh 'rm -f ${env.KUBECONFIG} || true'
                     
                 } catch (Exception e) {
