@@ -1,0 +1,36 @@
+{
+  "name": "nodejs-eks-app",
+  "version": "1.0.0",
+  "description": "Node.js web application for Amazon EKS deployment",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "keywords": [
+    "nodejs",
+    "express",
+    "kubernetes",
+    "eks",
+    "docker",
+    "jenkins"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "jest": "^29.5.0",
+    "eslint": "^8.44.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}
