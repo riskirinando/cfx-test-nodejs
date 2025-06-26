@@ -255,6 +255,7 @@ pipeline {
                         echo "Configuring kubectl for EKS cluster..."
                         
                         // Update kubeconfig for EKS
+                       withEnv(["KUBECONFIG=${env.KUBECONFIG}"]) {
                         sh """
                             echo "== PATH =="
                             echo \$PATH
@@ -262,16 +263,13 @@ pipeline {
                             which aws && aws --version
                             echo "== Kubeconfig =="
                             aws sts get-caller-identity
-                            aws eks --region us-east-1 update-kubeconfig --name test-project-eks-cluster --kubeconfig /tmp/kubeconfig
-                            export KUBECONFIG=/tmp/kubeconfig
+                            aws eks --region us-east-1 update-kubeconfig --name ${env.EKS_CLUSTER_NAME} --kubeconfig ${env.KUBECONFIG}
                             echo "== Kubeconfig current context =="
                             kubectl config current-context
                             echo "== Nodes =="
                             kubectl get nodes
                         """
-
-
-                        
+                    }
                         echo "✅ kubectl configured successfully"
                         echo "✅ KUBECTL_CONFIG stage completed successfully"
                         
