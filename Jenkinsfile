@@ -183,7 +183,23 @@ pipeline {
                 }
             }
         }
+
         
+        stage('Set AWS Account Info') {
+    steps {
+        script {
+            echo "Fetching AWS Account ID..."
+            env.AWS_ACCOUNT_ID = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
+            env.ECR_REGISTRY = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+            env.FULL_IMAGE_URI = "${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}"
+
+            echo "✅ AWS_ACCOUNT_ID: ${env.AWS_ACCOUNT_ID}"
+            echo "✅ ECR_REGISTRY: ${env.ECR_REGISTRY}"
+            echo "✅ FULL_IMAGE_URI: ${env.FULL_IMAGE_URI}"
+        }
+    }
+}
+
         stage('ECR Login & Push') {
             steps {
                 script {
