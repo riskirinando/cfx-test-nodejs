@@ -2,7 +2,7 @@ pipeline {
     agent any
     
     environment {
-        AWS_REGION = 'us-east-1'  // Change to your preferred region
+        AWS_REGION = 'us-east-1'
         ECR_REPOSITORY = 'cfx-test-nodejs'
         EKS_CLUSTER_NAME = 'test-project-eks-cluster'
         IMAGE_TAG = "${BUILD_NUMBER}"
@@ -18,6 +18,14 @@ pipeline {
                 script {
                     env.GIT_COMMIT = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
                     env.SHORT_COMMIT = env.GIT_COMMIT.take(7)
+                    
+                    // Debug environment variables
+                    echo "=== Environment Variables Debug ==="
+                    echo "AWS_REGION: ${env.AWS_REGION}"
+                    echo "ECR_REPOSITORY: ${env.ECR_REPOSITORY}"
+                    echo "EKS_CLUSTER_NAME: ${env.EKS_CLUSTER_NAME}"
+                    echo "IMAGE_TAG: ${env.IMAGE_TAG}"
+                    echo "==============================="
                 }
             }
         }
@@ -77,32 +85,32 @@ pipeline {
                         ).trim()
                         
                         // Set ECR Registry URL
-                        env.ECR_REGISTRY = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+                        env.ECR_REGISTRY = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
                         
                         echo "AWS Account ID: ${env.AWS_ACCOUNT_ID}"
                         echo "ECR Registry: ${env.ECR_REGISTRY}"
                         
                         // Login to ECR
                         sh """
-                            aws ecr get-login-password --region ${AWS_REGION} | \\
+                            aws ecr get-login-password --region ${env.AWS_REGION} | \\
                             docker login --username AWS --password-stdin ${env.ECR_REGISTRY}
                         """
                         
                         // Create ECR repository if it doesn't exist
                         sh """
-                            aws ecr describe-repositories --repository-names ${ECR_REPOSITORY} --region ${AWS_REGION} || \\
-                            aws ecr create-repository --repository-name ${ECR_REPOSITORY} --region ${AWS_REGION}
+                            aws ecr describe-repositories --repository-names ${env.ECR_REPOSITORY} --region ${env.AWS_REGION} || \\
+                            aws ecr create-repository --repository-name ${env.ECR_REPOSITORY} --region ${env.AWS_REGION}
                         """
                         
                         // Tag and push images
                         sh """
-                            docker tag ${ECR_REPOSITORY}:${IMAGE_TAG} ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
-                            docker tag ${ECR_REPOSITORY}:latest ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:latest
-                            docker tag ${ECR_REPOSITORY}:${SHORT_COMMIT} ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${SHORT_COMMIT}
+                            docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}
+                            docker tag ${env.ECR_REPOSITORY}:latest ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
+                            docker tag ${env.ECR_REPOSITORY}:${env.SHORT_COMMIT} ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.SHORT_COMMIT}
                             
-                            docker push ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
-                            docker push ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:latest
-                            docker push ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${SHORT_COMMIT}
+                            docker push ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}
+                            docker push ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
+                            docker push ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.SHORT_COMMIT}
                         """
                     }
                 }
@@ -114,14 +122,14 @@ pipeline {
                 script {
                     withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                         // Update kubeconfig
-                        sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME}"
+                        sh "aws eks update-kubeconfig --region ${env.AWS_REGION} --name ${env.EKS_CLUSTER_NAME}"
                         
                         // Create k8s directory if it doesn't exist
                         sh "mkdir -p k8s"
                         
                         // Update deployment manifest with new image
                         sh """
-                            sed -i 's|YOUR_ECR_REPOSITORY_URI:latest|${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}|g' k8s/deployment.yaml
+                            sed -i 's|YOUR_ECR_REPOSITORY_URI:latest|${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}|g' k8s/deployment.yaml
                         """
                         
                         // Apply Kubernetes manifests
@@ -181,14 +189,14 @@ pipeline {
                     echo "Cleaning up Docker images..."
                     sh """
                         # Clean up local images
-                        docker rmi ${ECR_REPOSITORY}:${IMAGE_TAG} || true
-                        docker rmi ${ECR_REPOSITORY}:latest || true
-                        docker rmi ${ECR_REPOSITORY}:${SHORT_COMMIT} || true
+                        docker rmi ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} || true
+                        docker rmi ${env.ECR_REPOSITORY}:latest || true
+                        docker rmi ${env.ECR_REPOSITORY}:${env.SHORT_COMMIT} || true
                         
                         if [ -n "${env.ECR_REGISTRY}" ]; then
-                            docker rmi ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} || true
-                            docker rmi ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:latest || true
-                            docker rmi ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${SHORT_COMMIT} || true
+                            docker rmi ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG} || true
+                            docker rmi ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest || true
+                            docker rmi ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.SHORT_COMMIT} || true
                         fi
                         
                         # Clean up dangling images
@@ -206,17 +214,22 @@ pipeline {
             script {
                 echo "=== Build Cleanup Started ==="
                 
-                // Log build information
-                def ecrRepo = env.ECR_REPOSITORY ?: 'nodejs-eks-app'
+                // Use explicit environment variable access
+                def awsRegion = env.AWS_REGION ?: 'us-east-1'
+                def ecrRepo = env.ECR_REPOSITORY ?: 'cfx-test-nodejs'
+                def eksCluster = env.EKS_CLUSTER_NAME ?: 'test-project-eks-cluster'
                 def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
+                def gitCommit = env.GIT_COMMIT ?: 'N/A'
+                
+                // Log build information
                 def buildInfo = """
                 Build Number: ${env.BUILD_NUMBER}
-                Git Commit: ${env.GIT_COMMIT ?: 'N/A'}
+                Git Commit: ${gitCommit}
                 Image Tag: ${imageTag}
                 ECR Repository: ${ecrRepo}
                 Build Time: ${new Date()}
-                EKS Cluster: ${env.EKS_CLUSTER_NAME}
-                AWS Region: ${env.AWS_REGION}
+                EKS Cluster: ${eksCluster}
+                AWS Region: ${awsRegion}
                 Build Status: ${currentBuild.currentResult}
                 """
                 
@@ -231,41 +244,45 @@ pipeline {
         success {
             script {
                 echo "✅ Deployment successful!"
-                def ecrRepo = env.ECR_REPOSITORY ?: 'nodejs-eks-app'
+                def ecrRepo = env.ECR_REPOSITORY ?: 'cfx-test-nodejs'
                 def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
+                def eksCluster = env.EKS_CLUSTER_NAME ?: 'test-project-eks-cluster'
+                def awsRegion = env.AWS_REGION ?: 'us-east-1'
                 
                 echo """
                 🎉 SUCCESS SUMMARY:
                 - Application: ${ecrRepo}
                 - Version: ${imageTag}
-                - Cluster: ${env.EKS_CLUSTER_NAME}
-                - Region: ${env.AWS_REGION}
+                - Cluster: ${eksCluster}
+                - Region: ${awsRegion}
                 - Build URL: ${env.BUILD_URL}
                 """
                 
                 // Set build description
-                currentBuild.description = "✅ Deployed ${ecrRepo}:${imageTag} to ${env.EKS_CLUSTER_NAME}"
+                currentBuild.description = "✅ Deployed ${ecrRepo}:${imageTag} to ${eksCluster}"
             }
         }
         
         failure {
             script {
                 echo "❌ Deployment failed!"
-                def ecrRepo = env.ECR_REPOSITORY ?: 'nodejs-eks-app'
+                def ecrRepo = env.ECR_REPOSITORY ?: 'cfx-test-nodejs'
                 def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
+                def eksCluster = env.EKS_CLUSTER_NAME ?: 'test-project-eks-cluster'
+                def awsRegion = env.AWS_REGION ?: 'us-east-1'
                 
                 echo """
                 💥 FAILURE SUMMARY:
                 - Application: ${ecrRepo}
                 - Version: ${imageTag}
-                - Cluster: ${env.EKS_CLUSTER_NAME}
-                - Region: ${env.AWS_REGION}
+                - Cluster: ${eksCluster}
+                - Region: ${awsRegion}
                 - Build URL: ${env.BUILD_URL}
                 - Failed Stage: ${env.STAGE_NAME ?: 'Unknown'}
                 """
                 
                 // Set build description
-                currentBuild.description = "❌ Failed to deploy ${ecrRepo}:${imageTag} to ${env.EKS_CLUSTER_NAME}"
+                currentBuild.description = "❌ Failed to deploy ${ecrRepo}:${imageTag} to ${eksCluster}"
                 
                 echo """
                 🔍 TROUBLESHOOTING TIPS:
@@ -281,8 +298,9 @@ pipeline {
         unstable {
             script {
                 echo "⚠️ Build completed with warnings"
-                def ecrRepo = env.ECR_REPOSITORY ?: 'nodejs-eks-app'
+                def ecrRepo = env.ECR_REPOSITORY ?: 'cfx-test-nodejs'
                 def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
+                def eksCluster = env.EKS_CLUSTER_NAME ?: 'test-project-eks-cluster'
                 currentBuild.description = "⚠️ Unstable deployment ${ecrRepo}:${imageTag}"
             }
         }
