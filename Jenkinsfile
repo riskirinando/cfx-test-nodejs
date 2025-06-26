@@ -256,11 +256,13 @@ pipeline {
                         
                         // Update kubeconfig for EKS
                         sh """
+                            export PATH=/usr/local/bin:$PATH
                             aws eks --region us-east-1 update-kubeconfig --name test-project-eks-cluster --kubeconfig /tmp/kubeconfig
-                            export KUBECONFIG=${env.KUBECONFIG}
+                            export KUBECONFIG=/tmp/kubeconfig
                             kubectl config current-context
                             kubectl get nodes
                         """
+
                         
                         echo "✅ kubectl configured successfully"
                         echo "✅ KUBECTL_CONFIG stage completed successfully"
