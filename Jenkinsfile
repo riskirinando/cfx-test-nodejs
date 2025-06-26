@@ -208,55 +208,53 @@ pipeline {
 
 
         stage('ECR Login & Push') {
-    steps {
-        script {
-            env.CURRENT_STAGE = 'ECR_PUSH'
-            echo "=== STAGE: ${env.CURRENT_STAGE} ==="
-
-            // Dynamically fetch AWS Account ID and construct ECR vars
-            env.AWS_ACCOUNT_ID = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
-            env.ECR_REGISTRY = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
-            env.FULL_IMAGE_URI = "${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}"
-            def fullImageUriLatest = "${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest"
-
-            echo "✅ AWS_ACCOUNT_ID: ${env.AWS_ACCOUNT_ID}"
-            echo "✅ ECR_REGISTRY: ${env.ECR_REGISTRY}"
-            echo "✅ FULL_IMAGE_URI: ${env.FULL_IMAGE_URI}"
-
-            try {
-                def dockerCmd = env.DOCKER_CMD ?: "sudo docker"
-
-                // ECR login
-                sh """
-                    aws ecr get-login-password --region ${env.AWS_REGION} | ${dockerCmd} login --username AWS --password-stdin ${env.ECR_REGISTRY}
-                """
-                echo "✅ ECR login successful"
-
-                // Ensure repo exists
-                sh """
-                    aws ecr describe-repositories --repository-names ${env.ECR_REPOSITORY} --region ${env.AWS_REGION} || \
-                    aws ecr create-repository --repository-name ${env.ECR_REPOSITORY} --region ${env.AWS_REGION}
-                """
-                echo "✅ ECR repository verified/created"
-
-                // Push images
-                echo "Pushing images to ECR..."
-                sh """
-                    ${dockerCmd} tag your-local-image-name ${env.FULL_IMAGE_URI}
-                    ${dockerCmd} tag your-local-image-name ${fullImageUriLatest}
-                    ${dockerCmd} push ${env.FULL_IMAGE_URI}
-                    ${dockerCmd} push ${fullImageUriLatest}
-                """
-                echo "✅ Images pushed successfully"
-
-            } catch (Exception e) {
-                env.CURRENT_STAGE = 'ECR_PUSH_FAILED'
-                echo "❌ ECR_PUSH stage failed: ${e.getMessage()}"
-                throw e
+            steps {
+                script {
+                    echo "=== STAGE: ECR_PUSH ==="
+        
+                    // Get AWS Account ID
+                    def accountId = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
+                    def ecrRegistry = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+                    def fullImageUri = "${ecrRegistry}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}"
+                    def fullImageUriLatest = "${ecrRegistry}/${env.ECR_REPOSITORY}:latest"
+        
+                    echo "✅ AWS_ACCOUNT_ID: ${accountId}"
+                    echo "✅ ECR_REGISTRY: ${ecrRegistry}"
+                    echo "✅ FULL_IMAGE_URI: ${fullImageUri}"
+        
+                    try {
+                        def dockerCmd = env.DOCKER_CMD ?: "sudo docker"
+        
+                        // ECR login
+                        sh """
+                            aws ecr get-login-password --region ${env.AWS_REGION} | ${dockerCmd} login --username AWS --password-stdin ${ecrRegistry}
+                        """
+                        echo "✅ ECR login successful"
+        
+                        // Create repo if not exists
+                        sh """
+                            aws ecr describe-repositories --repository-names ${env.ECR_REPOSITORY} --region ${env.AWS_REGION} || \
+                            aws ecr create-repository --repository-name ${env.ECR_REPOSITORY} --region ${env.AWS_REGION}
+                        """
+                        echo "✅ ECR repository verified/created"
+        
+                        // Push images
+                        sh """
+                            ${dockerCmd} tag your-local-image-name ${fullImageUri}
+                            ${dockerCmd} tag your-local-image-name ${fullImageUriLatest}
+                            ${dockerCmd} push ${fullImageUri}
+                            ${dockerCmd} push ${fullImageUriLatest}
+                        """
+                        echo "✅ Images pushed successfully"
+        
+                    } catch (Exception e) {
+                        echo "❌ ECR_PUSH stage failed: ${e.getMessage()}"
+                        throw e
+                    }
+                }
             }
         }
-    }
-}
+
 
         
         stage('Configure Kubectl') {
