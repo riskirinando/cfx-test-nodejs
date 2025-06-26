@@ -256,7 +256,7 @@ pipeline {
                         
                         // Update kubeconfig for EKS
                         sh """
-                            aws eks update-kubeconfig --region ${env.AWS_REGION} --name ${env.EKS_CLUSTER_NAME} --kubeconfig ${env.KUBECONFIG}
+                            aws eks --region us-east-1 update-kubeconfig --name test-project-eks-cluster --kubeconfig /tmp/kubeconfig
                             export KUBECONFIG=${env.KUBECONFIG}
                             kubectl config current-context
                             kubectl get nodes
