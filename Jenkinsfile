@@ -2,9 +2,9 @@ pipeline {
     agent any
     
     environment {
-        AWS_REGION = 'us-west-2'  // Change to your preferred region
-        ECR_REPOSITORY = 'nodejs-eks-app'
-        EKS_CLUSTER_NAME = 'my-eks-cluster'
+        AWS_REGION = 'us-east-1'  // Change to your preferred region
+        ECR_REPOSITORY = 'cfx-test-nodejs'
+        EKS_CLUSTER_NAME = 'test-project-eks-cluster'
         ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
         IMAGE_TAG = "${BUILD_NUMBER}"
         KUBECONFIG = credentials('kubeconfig')
