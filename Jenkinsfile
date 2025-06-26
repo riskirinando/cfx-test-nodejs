@@ -222,8 +222,8 @@ pipeline {
                     // 5. Tag and push Docker image
                     def dockerCmd = env.DOCKER_CMD ?: "docker" // or sudo docker if needed
                     sh """
-                        ${dockerCmd} tag your-local-image-name ${FULL_IMAGE_URI}
-                        ${dockerCmd} tag your-local-image-name ${ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
+                        ${dockerCmd} tag cfx-test-nodejs ${FULL_IMAGE_URI}
+                        ${dockerCmd} tag cfx-test-nodejs ${ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
                         ${dockerCmd} push ${FULL_IMAGE_URI}
                         ${dockerCmd} push ${ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
                     """
