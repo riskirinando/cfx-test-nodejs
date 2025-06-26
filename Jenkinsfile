@@ -161,13 +161,13 @@ pipeline {
                         
                         // Build Docker image
                         sh """
-                            docker build -t ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} .
-                            docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.FULL_IMAGE_URI}
-                            docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
+                            ${dockerCmd} build -t ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} .
+                            ${dockerCmd} tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.FULL_IMAGE_URI}
+                            ${dockerCmd} tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
                         """
                         
                         // List Docker images
-                        sh "docker images | grep cfx-test-nodejs || echo 'No cfx-test-nodejs images found'"
+                        sh "${dockerCmd} images | grep cfx-test-nodejs || echo 'No cfx-test-nodejs images found'"
                         
                         // Store docker command for later stages
                         env.DOCKER_CMD = dockerCmd
@@ -183,79 +183,52 @@ pipeline {
                 }
             }
         }
-
         
-        stage('Set AWS Account Info') {
-            steps {
-                script {
-                    def accountId = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
-                    def ecrRegistry = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
-                    def fullImageUri = "${ecrRegistry}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}"
-        
-                    // Use withEnv to export these across steps
-                    withEnv([
-                        "AWS_ACCOUNT_ID=${accountId}",
-                        "ECR_REGISTRY=${ecrRegistry}",
-                        "FULL_IMAGE_URI=${fullImageUri}"
-                    ]) {
-                        echo "✅ AWS_ACCOUNT_ID: ${env.AWS_ACCOUNT_ID}"
-                        echo "✅ ECR_REGISTRY: ${env.ECR_REGISTRY}"
-                        echo "✅ FULL_IMAGE_URI: ${env.FULL_IMAGE_URI}"
-                    }
-                }
-            }
-        }
-
-
         stage('ECR Login & Push') {
             steps {
                 script {
-                    echo "=== STAGE: ECR_PUSH ==="
-        
-                    // Get AWS Account ID
-                    def accountId = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
-                    def ecrRegistry = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
-                    def fullImageUri = "${ecrRegistry}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}"
-                    def fullImageUriLatest = "${ecrRegistry}/${env.ECR_REPOSITORY}:latest"
-        
-                    echo "✅ AWS_ACCOUNT_ID: ${accountId}"
-                    echo "✅ ECR_REGISTRY: ${ecrRegistry}"
-                    echo "✅ FULL_IMAGE_URI: ${fullImageUri}"
-        
+                    env.CURRENT_STAGE = 'ECR_PUSH'
+                    echo "=== STAGE: ${env.CURRENT_STAGE} ==="
+                    
                     try {
+                        echo "Logging into ECR..."
+                        
+                        // Use the docker command determined in previous stage
                         def dockerCmd = env.DOCKER_CMD ?: "sudo docker"
-        
-                        // ECR login
+                        
+                        // ECR Login
                         sh """
-                            aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${ecrRegistry}
+                            aws ecr get-login-password --region ${env.AWS_REGION} | ${dockerCmd} login --username AWS --password-stdin ${env.ECR_REGISTRY}
                         """
+                        
                         echo "✅ ECR login successful"
-        
-                        // Create repo if not exists
+                        
+                        // Create ECR repository if it doesn't exist
                         sh """
                             aws ecr describe-repositories --repository-names ${env.ECR_REPOSITORY} --region ${env.AWS_REGION} || \
                             aws ecr create-repository --repository-name ${env.ECR_REPOSITORY} --region ${env.AWS_REGION}
                         """
+                        
                         echo "✅ ECR repository verified/created"
-        
+                        
                         // Push images
+                        echo "Pushing images to ECR..."
                         sh """
-                            docker tag your-local-image-name ${fullImageUri}
-                            docker tag your-local-image-name ${fullImageUriLatest}
-                            docker push ${fullImageUri}
-                            docker push ${fullImageUriLatest}
+                            ${dockerCmd} push ${env.FULL_IMAGE_URI}
+                            ${dockerCmd} push ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
                         """
+                        
                         echo "✅ Images pushed successfully"
-        
+                        echo "✅ ECR_PUSH stage completed successfully"
+                        
                     } catch (Exception e) {
+                        env.CURRENT_STAGE = 'ECR_PUSH_FAILED'
                         echo "❌ ECR_PUSH stage failed: ${e.getMessage()}"
                         throw e
                     }
                 }
             }
         }
-
-
         
         stage('Configure Kubectl') {
             steps {
@@ -399,7 +372,7 @@ spec:
                     
                     // Cleanup
                     def dockerCmd = env.DOCKER_CMD ?: "sudo docker"
-                    sh "docker system prune -f || true"
+                    sh "${dockerCmd} system prune -f || true"
                     sh 'rm -f ${env.KUBECONFIG} || true'
                     
                 } catch (Exception e) {
