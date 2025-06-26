@@ -5,10 +5,10 @@ pipeline {
         AWS_REGION = 'us-east-1'  // Change to your preferred region
         ECR_REPOSITORY = 'cfx-test-nodejs'
         EKS_CLUSTER_NAME = 'test-project-eks-cluster'
-        ECR_REGISTRY = "112113402575.dkr.ecr.us-east-1.amazonaws.com/cfx-test-nodejs"
         IMAGE_TAG = "${BUILD_NUMBER}"
         KUBECONFIG = credentials('kubeconfig')
         AWS_CREDENTIALS = credentials('aws-credentials')
+        // AWS_ACCOUNT_ID will be set dynamically in the pipeline
     }
     
     stages {
@@ -70,10 +70,22 @@ pipeline {
             steps {
                 script {
                     withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                        // Get AWS Account ID dynamically
+                        env.AWS_ACCOUNT_ID = sh(
+                            script: 'aws sts get-caller-identity --query Account --output text',
+                            returnStdout: true
+                        ).trim()
+                        
+                        // Set ECR Registry URL
+                        env.ECR_REGISTRY = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+                        
+                        echo "AWS Account ID: ${env.AWS_ACCOUNT_ID}"
+                        echo "ECR Registry: ${env.ECR_REGISTRY}"
+                        
                         // Login to ECR
                         sh """
                             aws ecr get-login-password --region ${AWS_REGION} | \\
-                            docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                            docker login --username AWS --password-stdin ${env.ECR_REGISTRY}
                         """
                         
                         // Create ECR repository if it doesn't exist
@@ -84,13 +96,13 @@ pipeline {
                         
                         // Tag and push images
                         sh """
-                            docker tag ${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
-                            docker tag ${ECR_REPOSITORY}:latest ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
-                            docker tag ${ECR_REPOSITORY}:${SHORT_COMMIT} ${ECR_REGISTRY}/${ECR_REPOSITORY}:${SHORT_COMMIT}
+                            docker tag ${ECR_REPOSITORY}:${IMAGE_TAG} ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+                            docker tag ${ECR_REPOSITORY}:latest ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+                            docker tag ${ECR_REPOSITORY}:${SHORT_COMMIT} ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${SHORT_COMMIT}
                             
-                            docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
-                            docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
-                            docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${SHORT_COMMIT}
+                            docker push ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+                            docker push ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+                            docker push ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${SHORT_COMMIT}
                         """
                     }
                 }
@@ -104,9 +116,12 @@ pipeline {
                         // Update kubeconfig
                         sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME}"
                         
+                        // Create k8s directory if it doesn't exist
+                        sh "mkdir -p k8s"
+                        
                         // Update deployment manifest with new image
                         sh """
-                            sed -i 's|YOUR_ECR_REPOSITORY_URI:latest|${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}|g' k8s/deployment.yaml
+                            sed -i 's|YOUR_ECR_REPOSITORY_URI:latest|${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}|g' k8s/deployment.yaml
                         """
                         
                         // Apply Kubernetes manifests
@@ -162,42 +177,79 @@ pipeline {
     
     post {
         always {
-            // Clean up Docker images
-            sh """
-                docker rmi ${ECR_REPOSITORY}:${IMAGE_TAG} || true
-                docker rmi ${ECR_REPOSITORY}:latest || true
-                docker rmi ${ECR_REPOSITORY}:${SHORT_COMMIT} || true
-                docker rmi ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} || true
-                docker rmi ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest || true
-                docker rmi ${ECR_REGISTRY}/${ECR_REPOSITORY}:${SHORT_COMMIT} || true
-            """
+            script {
+                // Clean up Docker images - use env variables properly
+                def ecrRepo = env.ECR_REPOSITORY ?: 'nodejs-eks-app'
+                def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
+                def shortCommit = env.SHORT_COMMIT ?: 'latest'
+                def ecrRegistry = env.ECR_REGISTRY ?: "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+                
+                sh """
+                    docker rmi ${ecrRepo}:${imageTag} || true
+                    docker rmi ${ecrRepo}:latest || true
+                    docker rmi ${ecrRepo}:${shortCommit} || true
+                    docker rmi ${ecrRegistry}/${ecrRepo}:${imageTag} || true
+                    docker rmi ${ecrRegistry}/${ecrRepo}:latest || true
+                    docker rmi ${ecrRegistry}/${ecrRepo}:${shortCommit} || true
+                    
+                    # Clean up any dangling images
+                    docker image prune -f || true
+                """
+            }
         }
         
         success {
             echo "✅ Deployment successful!"
             script {
-                // Send notification (optional)
+                def ecrRepo = env.ECR_REPOSITORY ?: 'nodejs-eks-app'
+                def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
+                
+                // Send success notification (optional)
                 if (env.SLACK_WEBHOOK) {
                     sh """
                         curl -X POST -H 'Content-type: application/json' \\
-                        --data '{"text":"✅ Deployment successful for ${ECR_REPOSITORY}:${IMAGE_TAG}"}' \\
-                        ${env.SLACK_WEBHOOK}
+                        --data '{"text":"✅ Deployment successful for ${ecrRepo}:${imageTag} in cluster ${env.EKS_CLUSTER_NAME}"}' \\
+                        '${env.SLACK_WEBHOOK}'
                     """
                 }
+                
+                // Archive build info
+                writeFile file: 'build-info.txt', text: """
+Build Number: ${env.BUILD_NUMBER}
+Git Commit: ${env.GIT_COMMIT}
+Image Tag: ${imageTag}
+ECR Repository: ${ecrRepo}
+Deployment Time: ${new Date()}
+"""
+                archiveArtifacts artifacts: 'build-info.txt', allowEmptyArchive: true
             }
         }
         
         failure {
             echo "❌ Deployment failed!"
             script {
-                // Send notification (optional)
+                def ecrRepo = env.ECR_REPOSITORY ?: 'nodejs-eks-app'
+                def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
+                
+                // Send failure notification (optional)
                 if (env.SLACK_WEBHOOK) {
                     sh """
                         curl -X POST -H 'Content-type: application/json' \\
-                        --data '{"text":"❌ Deployment failed for ${ECR_REPOSITORY}:${IMAGE_TAG}"}' \\
-                        ${env.SLACK_WEBHOOK}
+                        --data '{"text":"❌ Deployment failed for ${ecrRepo}:${imageTag} in cluster ${env.EKS_CLUSTER_NAME}. Build: ${env.BUILD_URL}"}' \\
+                        '${env.SLACK_WEBHOOK}'
                     """
                 }
+                
+                // Collect logs for debugging
+                sh """
+                    echo "=== Docker Images ===" > debug-info.txt
+                    docker images >> debug-info.txt || true
+                    echo "=== Kubernetes Pods ===" >> debug-info.txt
+                    kubectl get pods -l app=nodejs-app >> debug-info.txt || true
+                    echo "=== Kubernetes Events ===" >> debug-info.txt
+                    kubectl get events --sort-by=.metadata.creationTimestamp >> debug-info.txt || true
+                """
+                archiveArtifacts artifacts: 'debug-info.txt', allowEmptyArchive: true
             }
         }
     }
