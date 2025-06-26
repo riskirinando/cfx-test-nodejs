@@ -161,13 +161,13 @@ pipeline {
                         
                         // Build Docker image
                         sh """
-                            ${dockerCmd} build -t ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} .
-                            ${dockerCmd} tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.FULL_IMAGE_URI}
-                            ${dockerCmd} tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
+                            docker build -t ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} .
+                            docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.FULL_IMAGE_URI}
+                            docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
                         """
                         
                         // List Docker images
-                        sh "${dockerCmd} images | grep cfx-test-nodejs || echo 'No cfx-test-nodejs images found'"
+                        sh "docker images | grep cfx-test-nodejs || echo 'No cfx-test-nodejs images found'"
                         
                         // Store docker command for later stages
                         env.DOCKER_CMD = dockerCmd
@@ -227,7 +227,7 @@ pipeline {
         
                         // ECR login
                         sh """
-                            aws ecr get-login-password --region ${env.AWS_REGION} | ${dockerCmd} login --username AWS --password-stdin ${ecrRegistry}
+                            aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${ecrRegistry}
                         """
                         echo "✅ ECR login successful"
         
@@ -240,10 +240,10 @@ pipeline {
         
                         // Push images
                         sh """
-                            ${dockerCmd} tag your-local-image-name ${fullImageUri}
-                            ${dockerCmd} tag your-local-image-name ${fullImageUriLatest}
-                            ${dockerCmd} push ${fullImageUri}
-                            ${dockerCmd} push ${fullImageUriLatest}
+                            docker tag your-local-image-name ${fullImageUri}
+                            docker tag your-local-image-name ${fullImageUriLatest}
+                            docker push ${fullImageUri}
+                            docker push ${fullImageUriLatest}
                         """
                         echo "✅ Images pushed successfully"
         
@@ -399,7 +399,7 @@ spec:
                     
                     // Cleanup
                     def dockerCmd = env.DOCKER_CMD ?: "sudo docker"
-                    sh "${dockerCmd} system prune -f || true"
+                    sh "docker system prune -f || true"
                     sh 'rm -f ${env.KUBECONFIG} || true'
                     
                 } catch (Exception e) {
