@@ -14,18 +14,52 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
                 script {
-                    env.GIT_COMMIT = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
-                    env.SHORT_COMMIT = env.GIT_COMMIT.take(7)
-                    
-                    // Debug environment variables
-                    echo "=== Environment Variables Debug ==="
-                    echo "AWS_REGION: ${env.AWS_REGION}"
-                    echo "ECR_REPOSITORY: ${env.ECR_REPOSITORY}"
-                    echo "EKS_CLUSTER_NAME: ${env.EKS_CLUSTER_NAME}"
-                    echo "IMAGE_TAG: ${env.IMAGE_TAG}"
-                    echo "==============================="
+                    try {
+                        echo "=== Checkout Stage Started ==="
+                        checkout scm
+                        echo "SCM checkout completed successfully"
+                        
+                        // Try to get git commit
+                        try {
+                            env.GIT_COMMIT = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
+                            env.SHORT_COMMIT = env.GIT_COMMIT.take(7)
+                            echo "Git commit retrieved: ${env.GIT_COMMIT}"
+                        } catch (Exception gitError) {
+                            echo "Warning: Could not retrieve git commit: ${gitError.getMessage()}"
+                            env.GIT_COMMIT = "no-git-${env.BUILD_NUMBER}"
+                            env.SHORT_COMMIT = "no-git"
+                        }
+                        
+                        // Debug environment variables
+                        echo "=== Environment Variables Debug ==="
+                        echo "AWS_REGION: ${env.AWS_REGION}"
+                        echo "ECR_REPOSITORY: ${env.ECR_REPOSITORY}"
+                        echo "EKS_CLUSTER_NAME: ${env.EKS_CLUSTER_NAME}"
+                        echo "IMAGE_TAG: ${env.IMAGE_TAG}"
+                        echo "GIT_COMMIT: ${env.GIT_COMMIT}"
+                        echo "SHORT_COMMIT: ${env.SHORT_COMMIT}"
+                        echo "==============================="
+                        
+                        // Check if required files exist
+                        echo "=== File System Check ==="
+                        sh 'pwd && ls -la'
+                        if (fileExists('package.json')) {
+                            echo "✅ package.json found"
+                        } else {
+                            echo "❌ package.json not found"
+                        }
+                        if (fileExists('Dockerfile')) {
+                            echo "✅ Dockerfile found"
+                        } else {
+                            echo "❌ Dockerfile not found"
+                        }
+                        echo "========================="
+                        
+                    } catch (Exception e) {
+                        echo "❌ Error in Checkout stage: ${e.getMessage()}"
+                        throw e
+                    }
                 }
             }
         }
@@ -33,14 +67,41 @@ pipeline {
         stage('Build and Test') {
             steps {
                 script {
-                    // Install dependencies
-                    sh 'npm ci'
-                    
-                    // Run linting
-                    sh 'npm run lint'
-                    
-                    // Run tests (if available)
-                    sh 'npm test || true'
+                    try {
+                        echo "=== Build and Test Stage Started ==="
+                        
+                        // Check if package.json exists before running npm commands
+                        if (!fileExists('package.json')) {
+                            error("package.json not found. This doesn't appear to be a Node.js project.")
+                        }
+                        
+                        echo "Installing dependencies..."
+                        sh 'npm ci'
+                        echo "✅ Dependencies installed successfully"
+                        
+                        echo "Running linting..."
+                        // Check if lint script exists
+                        def packageJson = readJSON file: 'package.json'
+                        if (packageJson.scripts && packageJson.scripts.lint) {
+                            sh 'npm run lint'
+                            echo "✅ Linting completed successfully"
+                        } else {
+                            echo "⚠️ No lint script found in package.json, skipping"
+                        }
+                        
+                        echo "Running tests..."
+                        // Check if test script exists
+                        if (packageJson.scripts && packageJson.scripts.test) {
+                            sh 'npm test || true'
+                            echo "✅ Tests completed (may have failures)"
+                        } else {
+                            echo "⚠️ No test script found in package.json, skipping"
+                        }
+                        
+                    } catch (Exception e) {
+                        echo "❌ Error in Build and Test stage: ${e.getMessage()}"
+                        throw e
+                    }
                 }
             }
         }
@@ -48,14 +109,35 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    // Build Docker image
-                    def image = docker.build("${ECR_REPOSITORY}:${IMAGE_TAG}")
-                    
-                    // Tag with latest
-                    sh "docker tag ${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REPOSITORY}:latest"
-                    
-                    // Tag with git commit
-                    sh "docker tag ${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REPOSITORY}:${SHORT_COMMIT}"
+                    try {
+                        echo "=== Build Docker Image Stage Started ==="
+                        
+                        // Check if Dockerfile exists
+                        if (!fileExists('Dockerfile')) {
+                            error("Dockerfile not found. Cannot build Docker image.")
+                        }
+                        
+                        echo "Building Docker image: ${env.ECR_REPOSITORY}:${env.IMAGE_TAG}"
+                        
+                        // Build Docker image
+                        def image = docker.build("${env.ECR_REPOSITORY}:${env.IMAGE_TAG}")
+                        echo "✅ Docker image built successfully"
+                        
+                        // Tag with latest
+                        sh "docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REPOSITORY}:latest"
+                        echo "✅ Tagged with latest"
+                        
+                        // Tag with git commit
+                        sh "docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REPOSITORY}:${env.SHORT_COMMIT}"
+                        echo "✅ Tagged with commit: ${env.SHORT_COMMIT}"
+                        
+                        // List created images
+                        sh "docker images | grep ${env.ECR_REPOSITORY}"
+                        
+                    } catch (Exception e) {
+                        echo "❌ Error in Build Docker Image stage: ${e.getMessage()}"
+                        throw e
+                    }
                 }
             }
         }
