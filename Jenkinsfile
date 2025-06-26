@@ -108,9 +108,14 @@ pipeline {
                             echo "✅ AWS Account ID: ${env.AWS_ACCOUNT_ID}"
                         }
                         
-                        // Update ECR registry URL
-                        env.ECR_REGISTRY = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
-                        env.FULL_IMAGE_URI = "${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}"
+                        // Update ECR registry URL - force string interpolation
+                        def awsAccountId = env.AWS_ACCOUNT_ID
+                        def awsRegion = env.AWS_REGION
+                        def ecrRepo = env.ECR_REPOSITORY
+                        def imageTag = env.IMAGE_TAG
+                        
+                        env.ECR_REGISTRY = "${awsAccountId}.dkr.ecr.${awsRegion}.amazonaws.com"
+                        env.FULL_IMAGE_URI = "${awsAccountId}.dkr.ecr.${awsRegion}.amazonaws.com/${ecrRepo}:${imageTag}"
                         
                         echo "✅ ECR Registry: ${env.ECR_REGISTRY}"
                         echo "✅ Full Image URI: ${env.FULL_IMAGE_URI}"
@@ -136,27 +141,43 @@ pipeline {
                         echo "Building Docker image..."
                         echo "Image URI: ${env.FULL_IMAGE_URI}"
                         
-                        // Check Docker daemon access first
-                        sh 'docker version || echo "Docker daemon not accessible"'
+                        // Check Docker daemon access and current user
                         sh 'whoami'
                         sh 'groups'
+                        sh 'ls -la /var/run/docker.sock'
                         
-                        // Build Docker image with sudo if needed
+                        // Try docker without sudo first, then with sudo as fallback
+                        def dockerCmd = ""
+                        try {
+                            sh 'docker version'
+                            dockerCmd = "docker"
+                            echo "✅ Docker accessible without sudo"
+                        } catch (Exception e) {
+                            echo "⚠️ Docker not accessible without sudo, trying with sudo..."
+                            sh 'sudo docker version'
+                            dockerCmd = "sudo docker"
+                            echo "✅ Docker accessible with sudo"
+                        }
+                        
+                        // Build Docker image
                         sh """
-                            sudo docker build -t ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} .
-                            sudo docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.FULL_IMAGE_URI}
-                            sudo docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
+                            ${dockerCmd} build -t ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} .
+                            ${dockerCmd} tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.FULL_IMAGE_URI}
+                            ${dockerCmd} tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
                         """
                         
                         // List Docker images
-                        sh 'sudo docker images | grep cfx-test-nodejs'
+                        sh "${dockerCmd} images | grep cfx-test-nodejs || echo 'No cfx-test-nodejs images found'"
+                        
+                        // Store docker command for later stages
+                        env.DOCKER_CMD = dockerCmd
                         
                         echo "✅ DOCKER_BUILD stage completed successfully"
                         
                     } catch (Exception e) {
                         env.CURRENT_STAGE = 'DOCKER_BUILD_FAILED'
                         echo "❌ DOCKER_BUILD stage failed: ${e.getMessage()}"
-                        echo "💡 Try running: sudo usermod -aG docker jenkins && sudo systemctl restart jenkins"
+                        echo "💡 To fix permanently, run: sudo usermod -aG docker jenkins && sudo systemctl restart jenkins"
                         throw e
                     }
                 }
@@ -172,9 +193,12 @@ pipeline {
                     try {
                         echo "Logging into ECR..."
                         
-                        // ECR Login with sudo
+                        // Use the docker command determined in previous stage
+                        def dockerCmd = env.DOCKER_CMD ?: "sudo docker"
+                        
+                        // ECR Login
                         sh """
-                            aws ecr get-login-password --region ${env.AWS_REGION} | sudo docker login --username AWS --password-stdin ${env.ECR_REGISTRY}
+                            aws ecr get-login-password --region ${env.AWS_REGION} | ${dockerCmd} login --username AWS --password-stdin ${env.ECR_REGISTRY}
                         """
                         
                         echo "✅ ECR login successful"
@@ -187,11 +211,11 @@ pipeline {
                         
                         echo "✅ ECR repository verified/created"
                         
-                        // Push images with sudo
+                        // Push images
                         echo "Pushing images to ECR..."
                         sh """
-                            sudo docker push ${env.FULL_IMAGE_URI}
-                            sudo docker push ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
+                            ${dockerCmd} push ${env.FULL_IMAGE_URI}
+                            ${dockerCmd} push ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
                         """
                         
                         echo "✅ Images pushed successfully"
@@ -347,7 +371,8 @@ spec:
                     echo "========================="
                     
                     // Cleanup
-                    sh 'sudo docker system prune -f || true'
+                    def dockerCmd = env.DOCKER_CMD ?: "sudo docker"
+                    sh "${dockerCmd} system prune -f || true"
                     sh 'rm -f ${env.KUBECONFIG} || true'
                     
                 } catch (Exception e) {
