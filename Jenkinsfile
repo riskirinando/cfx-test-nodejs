@@ -5,7 +5,7 @@ pipeline {
         AWS_REGION = 'us-east-1'  // Change to your preferred region
         ECR_REPOSITORY = 'cfx-test-nodejs'
         EKS_CLUSTER_NAME = 'test-project-eks-cluster'
-        ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        ECR_REGISTRY = "112113402575.dkr.ecr.us-east-1.amazonaws.com/cfx-test-nodejs"
         IMAGE_TAG = "${BUILD_NUMBER}"
         KUBECONFIG = credentials('kubeconfig')
         AWS_CREDENTIALS = credentials('aws-credentials')
