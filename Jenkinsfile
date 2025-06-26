@@ -173,83 +173,117 @@ pipeline {
                 }
             }
         }
+        
+        stage('Cleanup') {
+            steps {
+                script {
+                    // Clean up Docker images to save disk space
+                    echo "Cleaning up Docker images..."
+                    sh """
+                        # Clean up local images
+                        docker rmi ${ECR_REPOSITORY}:${IMAGE_TAG} || true
+                        docker rmi ${ECR_REPOSITORY}:latest || true
+                        docker rmi ${ECR_REPOSITORY}:${SHORT_COMMIT} || true
+                        
+                        if [ -n "${env.ECR_REGISTRY}" ]; then
+                            docker rmi ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} || true
+                            docker rmi ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:latest || true
+                            docker rmi ${env.ECR_REGISTRY}/${ECR_REPOSITORY}:${SHORT_COMMIT} || true
+                        fi
+                        
+                        # Clean up dangling images
+                        docker image prune -f || true
+                        
+                        echo "Docker cleanup completed"
+                    """
+                }
+            }
+        }
     }
     
     post {
         always {
             script {
-                // Clean up Docker images - use env variables properly
+                echo "=== Build Cleanup Started ==="
+                
+                // Log build information
                 def ecrRepo = env.ECR_REPOSITORY ?: 'nodejs-eks-app'
                 def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
-                def shortCommit = env.SHORT_COMMIT ?: 'latest'
-                def ecrRegistry = env.ECR_REGISTRY ?: "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
-                
-                sh """
-                    docker rmi ${ecrRepo}:${imageTag} || true
-                    docker rmi ${ecrRepo}:latest || true
-                    docker rmi ${ecrRepo}:${shortCommit} || true
-                    docker rmi ${ecrRegistry}/${ecrRepo}:${imageTag} || true
-                    docker rmi ${ecrRegistry}/${ecrRepo}:latest || true
-                    docker rmi ${ecrRegistry}/${ecrRepo}:${shortCommit} || true
-                    
-                    # Clean up any dangling images
-                    docker image prune -f || true
+                def buildInfo = """
+                Build Number: ${env.BUILD_NUMBER}
+                Git Commit: ${env.GIT_COMMIT ?: 'N/A'}
+                Image Tag: ${imageTag}
+                ECR Repository: ${ecrRepo}
+                Build Time: ${new Date()}
+                EKS Cluster: ${env.EKS_CLUSTER_NAME}
+                AWS Region: ${env.AWS_REGION}
+                Build Status: ${currentBuild.currentResult}
                 """
+                
+                echo buildInfo
+                
+                // Simple cleanup that doesn't require node context
+                echo "Docker image cleanup will be handled by Jenkins Docker plugin or manually"
+                echo "=== Build Cleanup Completed ==="
             }
         }
         
         success {
-            echo "✅ Deployment successful!"
             script {
+                echo "✅ Deployment successful!"
                 def ecrRepo = env.ECR_REPOSITORY ?: 'nodejs-eks-app'
                 def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
                 
-                // Send success notification (optional)
-                if (env.SLACK_WEBHOOK) {
-                    sh """
-                        curl -X POST -H 'Content-type: application/json' \\
-                        --data '{"text":"✅ Deployment successful for ${ecrRepo}:${imageTag} in cluster ${env.EKS_CLUSTER_NAME}"}' \\
-                        '${env.SLACK_WEBHOOK}'
-                    """
-                }
+                echo """
+                🎉 SUCCESS SUMMARY:
+                - Application: ${ecrRepo}
+                - Version: ${imageTag}
+                - Cluster: ${env.EKS_CLUSTER_NAME}
+                - Region: ${env.AWS_REGION}
+                - Build URL: ${env.BUILD_URL}
+                """
                 
-                // Archive build info
-                writeFile file: 'build-info.txt', text: """
-Build Number: ${env.BUILD_NUMBER}
-Git Commit: ${env.GIT_COMMIT}
-Image Tag: ${imageTag}
-ECR Repository: ${ecrRepo}
-Deployment Time: ${new Date()}
-"""
-                archiveArtifacts artifacts: 'build-info.txt', allowEmptyArchive: true
+                // Set build description
+                currentBuild.description = "✅ Deployed ${ecrRepo}:${imageTag} to ${env.EKS_CLUSTER_NAME}"
             }
         }
         
         failure {
-            echo "❌ Deployment failed!"
             script {
+                echo "❌ Deployment failed!"
                 def ecrRepo = env.ECR_REPOSITORY ?: 'nodejs-eks-app'
                 def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
                 
-                // Send failure notification (optional)
-                if (env.SLACK_WEBHOOK) {
-                    sh """
-                        curl -X POST -H 'Content-type: application/json' \\
-                        --data '{"text":"❌ Deployment failed for ${ecrRepo}:${imageTag} in cluster ${env.EKS_CLUSTER_NAME}. Build: ${env.BUILD_URL}"}' \\
-                        '${env.SLACK_WEBHOOK}'
-                    """
-                }
-                
-                // Collect logs for debugging
-                sh """
-                    echo "=== Docker Images ===" > debug-info.txt
-                    docker images >> debug-info.txt || true
-                    echo "=== Kubernetes Pods ===" >> debug-info.txt
-                    kubectl get pods -l app=nodejs-app >> debug-info.txt || true
-                    echo "=== Kubernetes Events ===" >> debug-info.txt
-                    kubectl get events --sort-by=.metadata.creationTimestamp >> debug-info.txt || true
+                echo """
+                💥 FAILURE SUMMARY:
+                - Application: ${ecrRepo}
+                - Version: ${imageTag}
+                - Cluster: ${env.EKS_CLUSTER_NAME}
+                - Region: ${env.AWS_REGION}
+                - Build URL: ${env.BUILD_URL}
+                - Failed Stage: ${env.STAGE_NAME ?: 'Unknown'}
                 """
-                archiveArtifacts artifacts: 'debug-info.txt', allowEmptyArchive: true
+                
+                // Set build description
+                currentBuild.description = "❌ Failed to deploy ${ecrRepo}:${imageTag} to ${env.EKS_CLUSTER_NAME}"
+                
+                echo """
+                🔍 TROUBLESHOOTING TIPS:
+                1. Check AWS credentials and permissions
+                2. Verify EKS cluster is accessible
+                3. Check ECR repository permissions
+                4. Review Kubernetes manifests
+                5. Check application logs: kubectl logs -l app=nodejs-app
+                """
+            }
+        }
+        
+        unstable {
+            script {
+                echo "⚠️ Build completed with warnings"
+                def ecrRepo = env.ECR_REPOSITORY ?: 'nodejs-eks-app'
+                def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
+                currentBuild.description = "⚠️ Unstable deployment ${ecrRepo}:${imageTag}"
             }
         }
     }
