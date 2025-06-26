@@ -212,96 +212,132 @@ pipeline {
     post {
         always {
             script {
-                echo "=== Build Cleanup Started ==="
-                
-                // Use explicit environment variable access
-                def awsRegion = env.AWS_REGION ?: 'us-east-1'
-                def ecrRepo = env.ECR_REPOSITORY ?: 'cfx-test-nodejs'
-                def eksCluster = env.EKS_CLUSTER_NAME ?: 'test-project-eks-cluster'
-                def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
-                def gitCommit = env.GIT_COMMIT ?: 'N/A'
-                
-                // Log build information
-                def buildInfo = """
-                Build Number: ${env.BUILD_NUMBER}
-                Git Commit: ${gitCommit}
-                Image Tag: ${imageTag}
-                ECR Repository: ${ecrRepo}
-                Build Time: ${new Date()}
-                EKS Cluster: ${eksCluster}
-                AWS Region: ${awsRegion}
-                Build Status: ${currentBuild.currentResult}
-                """
-                
-                echo buildInfo
-                
-                // Simple cleanup that doesn't require node context
-                echo "Docker image cleanup will be handled by Jenkins Docker plugin or manually"
-                echo "=== Build Cleanup Completed ==="
+                try {
+                    echo "=== Build Cleanup Started ==="
+                    
+                    // Use explicit environment variable access with safe defaults
+                    def awsRegion = env.AWS_REGION ?: 'us-east-1'
+                    def ecrRepo = env.ECR_REPOSITORY ?: 'cfx-test-nodejs'
+                    def eksCluster = env.EKS_CLUSTER_NAME ?: 'test-project-eks-cluster'
+                    def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER ?: 'unknown'
+                    def gitCommit = env.GIT_COMMIT ?: 'N/A'
+                    def buildUrl = env.BUILD_URL ?: 'N/A'
+                    def buildStatus = currentBuild.currentResult ?: 'UNKNOWN'
+                    
+                    // Log build information
+                    echo """
+=== BUILD INFORMATION ===
+Build Number: ${env.BUILD_NUMBER ?: 'N/A'}
+Git Commit: ${gitCommit}
+Image Tag: ${imageTag}
+ECR Repository: ${ecrRepo}
+Build Time: ${new Date().toString()}
+EKS Cluster: ${eksCluster}
+AWS Region: ${awsRegion}
+Build Status: ${buildStatus}
+Build URL: ${buildUrl}
+========================
+"""
+                    
+                    echo "=== Build Cleanup Completed ==="
+                } catch (Exception e) {
+                    echo "Error in always block: ${e.getMessage()}"
+                    echo "Continuing with build cleanup..."
+                }
             }
         }
         
         success {
             script {
-                echo "✅ Deployment successful!"
-                def ecrRepo = env.ECR_REPOSITORY ?: 'cfx-test-nodejs'
-                def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
-                def eksCluster = env.EKS_CLUSTER_NAME ?: 'test-project-eks-cluster'
-                def awsRegion = env.AWS_REGION ?: 'us-east-1'
-                
-                echo """
-                🎉 SUCCESS SUMMARY:
-                - Application: ${ecrRepo}
-                - Version: ${imageTag}
-                - Cluster: ${eksCluster}
-                - Region: ${awsRegion}
-                - Build URL: ${env.BUILD_URL}
-                """
-                
-                // Set build description
-                currentBuild.description = "✅ Deployed ${ecrRepo}:${imageTag} to ${eksCluster}"
+                try {
+                    echo "✅ Deployment successful!"
+                    
+                    def ecrRepo = env.ECR_REPOSITORY ?: 'cfx-test-nodejs'
+                    def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER ?: 'unknown'
+                    def eksCluster = env.EKS_CLUSTER_NAME ?: 'test-project-eks-cluster'
+                    def awsRegion = env.AWS_REGION ?: 'us-east-1'
+                    def buildUrl = env.BUILD_URL ?: 'N/A'
+                    
+                    echo """
+🎉 SUCCESS SUMMARY:
+- Application: ${ecrRepo}
+- Version: ${imageTag}
+- Cluster: ${eksCluster}
+- Region: ${awsRegion}
+- Build URL: ${buildUrl}
+"""
+                    
+                    // Set build description safely
+                    try {
+                        currentBuild.description = "✅ Deployed ${ecrRepo}:${imageTag} to ${eksCluster}"
+                    } catch (Exception e) {
+                        echo "Could not set build description: ${e.getMessage()}"
+                    }
+                } catch (Exception e) {
+                    echo "Error in success block: ${e.getMessage()}"
+                }
             }
         }
         
         failure {
             script {
-                echo "❌ Deployment failed!"
-                def ecrRepo = env.ECR_REPOSITORY ?: 'cfx-test-nodejs'
-                def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
-                def eksCluster = env.EKS_CLUSTER_NAME ?: 'test-project-eks-cluster'
-                def awsRegion = env.AWS_REGION ?: 'us-east-1'
-                
-                echo """
-                💥 FAILURE SUMMARY:
-                - Application: ${ecrRepo}
-                - Version: ${imageTag}
-                - Cluster: ${eksCluster}
-                - Region: ${awsRegion}
-                - Build URL: ${env.BUILD_URL}
-                - Failed Stage: ${env.STAGE_NAME ?: 'Unknown'}
-                """
-                
-                // Set build description
-                currentBuild.description = "❌ Failed to deploy ${ecrRepo}:${imageTag} to ${eksCluster}"
-                
-                echo """
-                🔍 TROUBLESHOOTING TIPS:
-                1. Check AWS credentials and permissions
-                2. Verify EKS cluster is accessible
-                3. Check ECR repository permissions
-                4. Review Kubernetes manifests
-                5. Check application logs: kubectl logs -l app=nodejs-app
-                """
+                try {
+                    echo "❌ Deployment failed!"
+                    
+                    def ecrRepo = env.ECR_REPOSITORY ?: 'cfx-test-nodejs'
+                    def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER ?: 'unknown'
+                    def eksCluster = env.EKS_CLUSTER_NAME ?: 'test-project-eks-cluster'
+                    def awsRegion = env.AWS_REGION ?: 'us-east-1'
+                    def buildUrl = env.BUILD_URL ?: 'N/A'
+                    def stageName = env.STAGE_NAME ?: 'Unknown'
+                    
+                    echo """
+💥 FAILURE SUMMARY:
+- Application: ${ecrRepo}
+- Version: ${imageTag}
+- Cluster: ${eksCluster}
+- Region: ${awsRegion}
+- Build URL: ${buildUrl}
+- Failed Stage: ${stageName}
+"""
+                    
+                    // Set build description safely
+                    try {
+                        currentBuild.description = "❌ Failed to deploy ${ecrRepo}:${imageTag} to ${eksCluster}"
+                    } catch (Exception e) {
+                        echo "Could not set build description: ${e.getMessage()}"
+                    }
+                    
+                    echo """
+🔍 TROUBLESHOOTING TIPS:
+1. Check AWS credentials and permissions
+2. Verify EKS cluster is accessible
+3. Check ECR repository permissions
+4. Review Kubernetes manifests
+5. Check application logs: kubectl logs -l app=nodejs-app
+"""
+                } catch (Exception e) {
+                    echo "Error in failure block: ${e.getMessage()}"
+                }
             }
         }
         
         unstable {
             script {
-                echo "⚠️ Build completed with warnings"
-                def ecrRepo = env.ECR_REPOSITORY ?: 'cfx-test-nodejs'
-                def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER
-                def eksCluster = env.EKS_CLUSTER_NAME ?: 'test-project-eks-cluster'
-                currentBuild.description = "⚠️ Unstable deployment ${ecrRepo}:${imageTag}"
+                try {
+                    echo "⚠️ Build completed with warnings"
+                    def ecrRepo = env.ECR_REPOSITORY ?: 'cfx-test-nodejs'
+                    def imageTag = env.IMAGE_TAG ?: env.BUILD_NUMBER ?: 'unknown'
+                    def eksCluster = env.EKS_CLUSTER_NAME ?: 'test-project-eks-cluster'
+                    
+                    try {
+                        currentBuild.description = "⚠️ Unstable deployment ${ecrRepo}:${imageTag}"
+                    } catch (Exception e) {
+                        echo "Could not set build description: ${e.getMessage()}"
+                    }
+                } catch (Exception e) {
+                    echo "Error in unstable block: ${e.getMessage()}"
+                }
             }
         }
     }
