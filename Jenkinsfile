@@ -68,10 +68,12 @@ pipeline {
                         sed -i 's|IMAGE_PLACEHOLDER|${env.FULL_IMAGE_URI}|g' k8s/deployment.yml
                         kubectl apply -f k8s/deployment.yml
                         
-                        # Force deployment update by setting image and adding annotation
+                        # Force deployment update by setting image
                         kubectl set image deployment/cfx-nodejs-app cfx-nodejs-app=${env.FULL_IMAGE_URI}
-                        kubectl annotate deployment cfx-nodejs-app deployment.kubernetes.io/revision-
-                        kubectl patch deployment cfx-nodejs-app -p '{"spec":{"template":{"metadata":{"annotations":{"deployment.kubernetes.io/restartedAt":"'$(date +%s)'"}}}}}'
+                        
+                        # Force restart by patching with timestamp
+                        TIMESTAMP=\$(date +%s)
+                        kubectl patch deployment cfx-nodejs-app -p "{\\"spec\\":{\\"template\\":{\\"metadata\\":{\\"annotations\\":{\\"deployment.kubernetes.io/restartedAt\\":\\"\$TIMESTAMP\\"}}}}}"
                         
                         # Wait for rollout to complete
                         kubectl rollout status deployment/cfx-nodejs-app --timeout=300s
