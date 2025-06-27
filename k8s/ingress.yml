@@ -7,8 +7,7 @@ metadata:
     kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
@@ -18,14 +17,14 @@ metadata:
     app: nodejs-app
 spec:
   rules:
-  - host: YOUR_DOMAIN_NAME  # Replace with your domain
+  - host: nodejs.rinando.my.id
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: nodejs-app-service
+            name: cfx-nodejs-service
             port:
               number: 80
 ---
@@ -43,14 +42,9 @@ spec:
   - Egress
   ingress:
   - from:
-    - namespaceSelector:
-        matchLabels:
-          name: kube-system
-    - namespaceSelector:
-        matchLabels:
-          name: default
+    - namespaceSelector: {}
     ports:
     - protocol: TCP
       port: 3000
   egress:
-  - {} # Allow all egress traffic
+  - {}
