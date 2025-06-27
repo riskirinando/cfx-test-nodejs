@@ -98,13 +98,10 @@ pipeline {
                 echo "Build: ${env.BUILD_NUMBER}"
                 echo "Image: ${env.FULL_IMAGE_URI}"
                 echo "Status: ${currentBuild.currentResult}"
-                if (env.APP_URL && env.APP_URL != 'pending') {
-                    echo "URL: http://${env.APP_URL}"
-                }
                 
                 // Cleanup
                 sh 'docker system prune -f || true'
-                sh 'rm -f ${env.KUBECONFIG} || true'
+                sh "rm -f ${env.KUBECONFIG} || true"
             }
         }
         
