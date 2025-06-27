@@ -283,97 +283,133 @@ pipeline {
         }
         
         stage('Deploy to EKS') {
-            steps {
-                script {
-                    env.CURRENT_STAGE = 'EKS_DEPLOY'
-                    echo "=== STAGE: ${env.CURRENT_STAGE} ==="
+    steps {
+        script {
+            env.CURRENT_STAGE = 'EKS_DEPLOY'
+            echo "=== STAGE: ${env.CURRENT_STAGE} ==="
+            
+            try {
+                echo "Deploying to EKS cluster..."
+                
+                // Check if deployment.yml exists
+                if (!fileExists('deployment.yml')) {
+                    error "❌ deployment.yml not found! Please ensure deployment.yml exists in the repository."
+                }
+                echo "✅ deployment.yml found"
+                
+                // Display the deployment file content for verification
+                echo "📄 Current deployment.yml content:"
+                sh 'cat deployment.yml'
+                
+                // Update the image tag in deployment.yml to use the current build
+                sh """
+                    # Create a backup of the original deployment.yml
+                    cp deployment.yml deployment.yml.backup
                     
-                    try {
-                        echo "Deploying to EKS cluster..."
+                    # Update the image tag to use the current build number
+                    sed -i 's|image: .*cfx-test-go:.*|image: ${env.FULL_IMAGE_URI}|g' deployment.yml
+                    
+                    echo "📄 Updated deployment.yml with current image:"
+                    cat deployment.yml
+                """
+                
+                // Apply deployment using the existing deployment.yml
+                withEnv(["KUBECONFIG=${env.KUBECONFIG}"]) {
+                    sh """
+                        echo "Applying Kubernetes manifests..."
+                        kubectl apply -f deployment.yml
                         
-                        // Create Kubernetes deployment manifest
-                        writeFile file: 'k8s-deployment.yaml', text: """
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: cfx-nodejs-app
-  labels:
-    app: cfx-nodejs-app
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: cfx-nodejs-app
-  template:
-    metadata:
-      labels:
-        app: cfx-nodejs-app
-    spec:
-      containers:
-      - name: cfx-nodejs-app
-        image: ${env.FULL_IMAGE_URI}
-        ports:
-        - containerPort: 3000
-        env:
-        - name: BUILD_NUMBER
-          value: "${env.BUILD_NUMBER}"
-        - name: GIT_COMMIT
-          value: "${env.GIT_COMMIT}"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: cfx-nodejs-service
-spec:
-  selector:
-    app: cfx-nodejs-app
-  ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 3000
-  type: LoadBalancer
-"""
+                        echo "Waiting for deployment rollout..."
+                        kubectl rollout status deployment/go-web-app --timeout=300s
                         
-                        // Apply deployment
+                        echo "Current cluster status:"
+                        kubectl get deployments
+                        kubectl get services
+                        kubectl get pods -l app=go-web-app
+                        
+                        echo "Deployment details:"
+                        kubectl describe deployment go-web-app
+                    """
+                }
+                
+                // Restore original deployment.yml
+                sh 'mv deployment.yml.backup deployment.yml || true'
+                
+                // Get service URL
+                try {
+                    def serviceUrl = sh(
+                        returnStdout: true,
+                        script: """
+                            export KUBECONFIG=${env.KUBECONFIG}
+                            kubectl get service go-web-app-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo ""
+                        """
+                    ).trim()
+                    
+                    if (serviceUrl && serviceUrl != "") {
+                        echo "🌐 Application URL: http://${serviceUrl}"
+                        env.APP_URL = "http://${serviceUrl}"
+                    } else {
+                        echo "⚠️ LoadBalancer URL not yet available. It may take a few minutes to provision."
+                        echo "💡 You can check the service status with: kubectl get service go-web-app-service"
+                        
+                        // Try to get the service details
                         sh """
                             export KUBECONFIG=${env.KUBECONFIG}
-                            kubectl apply -f k8s-deployment.yaml
-                            kubectl rollout status deployment/cfx-nodejs-app --timeout=300s
-                            kubectl get deployments
-                            kubectl get services
-                            kubectl get pods
+                            echo "Service details:"
+                            kubectl get service go-web-app-service -o wide || true
                         """
-                        
-                        // Get service URL
-                        try {
-                            def serviceUrl = sh(
-                                returnStdout: true,
-                                script: """
-                                    export KUBECONFIG=${env.KUBECONFIG}
-                                    kubectl get service cfx-nodejs-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-                                """
-                            ).trim()
-                            
-                            if (serviceUrl) {
-                                echo "🌐 Application URL: http://${serviceUrl}"
-                                env.APP_URL = "http://${serviceUrl}"
-                            }
-                        } catch (Exception e) {
-                            echo "⚠️ Could not get service URL: ${e.getMessage()}"
-                        }
-                        
-                        echo "✅ EKS_DEPLOY stage completed successfully"
-                        env.CURRENT_STAGE = 'ALL_STAGES_COMPLETED'
-                        
-                    } catch (Exception e) {
-                        env.CURRENT_STAGE = 'EKS_DEPLOY_FAILED'
-                        echo "❌ EKS_DEPLOY stage failed: ${e.getMessage()}"
-                        throw e
                     }
+                } catch (Exception e) {
+                    echo "⚠️ Could not get service URL: ${e.getMessage()}"
+                    echo "💡 Service may still be provisioning. Check with: kubectl get service go-web-app-service"
                 }
+                
+                // Verify pods are running
+                sh """
+                    export KUBECONFIG=${env.KUBECONFIG}
+                    echo "Verifying pod status..."
+                    kubectl get pods -l app=go-web-app
+                    
+                    # Check if any pods are not running
+                    if kubectl get pods -l app=go-web-app --no-headers | grep -v Running | grep -v Completed; then
+                        echo "⚠️ Some pods are not in Running state. Checking pod logs..."
+                        kubectl logs -l app=go-web-app --tail=50 || true
+                    else
+                        echo "✅ All pods are running successfully"
+                    fi
+                """
+                
+                echo "✅ EKS_DEPLOY stage completed successfully"
+                env.CURRENT_STAGE = 'ALL_STAGES_COMPLETED'
+                
+            } catch (Exception e) {
+                env.CURRENT_STAGE = 'EKS_DEPLOY_FAILED'
+                echo "❌ EKS_DEPLOY stage failed: ${e.getMessage()}"
+                
+                // Restore original deployment.yml if backup exists
+                sh 'mv deployment.yml.backup deployment.yml 2>/dev/null || true'
+                
+                // Show troubleshooting info
+                try {
+                    sh """
+                        export KUBECONFIG=${env.KUBECONFIG}
+                        echo "=== TROUBLESHOOTING INFO ==="
+                        echo "Current deployments:"
+                        kubectl get deployments || true
+                        echo "Current pods:"
+                        kubectl get pods -l app=go-web-app || true
+                        echo "Recent events:"
+                        kubectl get events --sort-by=.metadata.creationTimestamp --field-selector type=Warning || true
+                    """
+                } catch (Exception debugE) {
+                    echo "Could not gather troubleshooting info: ${debugE.getMessage()}"
+                }
+                
+                throw e
             }
         }
     }
+}
     
     post {
         always {
