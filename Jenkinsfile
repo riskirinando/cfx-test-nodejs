@@ -6,278 +6,52 @@ pipeline {
         ECR_REPOSITORY = 'cfx-test-nodejs'
         EKS_CLUSTER_NAME = 'test-project-eks-cluster'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-        CURRENT_STAGE = 'NONE'
         KUBECONFIG = '/tmp/kubeconfig'
     }
     
     stages {
-        stage('Checkout') {
+        stage('Checkout & Setup') {
             steps {
                 script {
-                    env.CURRENT_STAGE = 'CHECKOUT'
-                    echo "=== STAGE: ${env.CURRENT_STAGE} ==="
+                    checkout scm
+                    env.GIT_COMMIT = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
                     
-                    try {
-                        checkout scm
-                        echo "✅ SCM checkout successful"
-                        
-                        // Get Git commit hash
-                        try {
-                            env.GIT_COMMIT = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
-                            echo "✅ Git commit: ${env.GIT_COMMIT}"
-                        } catch (Exception e) {
-                            echo "⚠️ Git operation failed: ${e.getMessage()}"
-                            env.GIT_COMMIT = "unknown-${env.BUILD_NUMBER}"
-                        }
-                        
-                        // List files to verify checkout
-                        sh 'ls -la'
-                        
-                        echo "✅ CHECKOUT stage completed successfully"
-                        
-                    } catch (Exception e) {
-                        env.CURRENT_STAGE = 'CHECKOUT_FAILED'
-                        echo "❌ CHECKOUT stage failed: ${e.getMessage()}"
-                        throw e
-                    }
-                }
-            }
-        }
-        
-        stage('Prerequisites Check') {
-            steps {
-                script {
-                    env.CURRENT_STAGE = 'PREREQUISITES'
-                    echo "=== STAGE: ${env.CURRENT_STAGE} ==="
-                    
-                    try {
-                        // Check for required files
-                        echo "Checking for required files..."
-                        
-                        if (!fileExists('Dockerfile')) {
-                            error "❌ Dockerfile not found! Please ensure Dockerfile exists in the repository."
-                        }
-                        echo "✅ Dockerfile found"
-                        
-                        if (fileExists('package.json')) {
-                            echo "✅ package.json found"
-                            sh 'cat package.json'
-                        }
-                        
-                        // Check required tools
-                        sh 'docker --version'
-                        sh 'aws --version'
-                        sh 'kubectl version --client'
-                        
-                        echo "✅ PREREQUISITES stage completed successfully"
-                        
-                    } catch (Exception e) {
-                        env.CURRENT_STAGE = 'PREREQUISITES_FAILED'
-                        echo "❌ PREREQUISITES stage failed: ${e.getMessage()}"
-                        throw e
-                    }
-                }
-            }
-        }
-        
-        stage('Get AWS Account ID') {
-            steps {
-                script {
-                    env.CURRENT_STAGE = 'AWS_ACCOUNT_ID'
-                    echo "=== STAGE: ${env.CURRENT_STAGE} ==="
-                    
-                    try {
-                        // Check AWS CLI configuration first
-                        sh 'aws sts get-caller-identity || echo "AWS CLI not configured or no permissions"'
-                        
-                        // Get AWS Account ID with better error handling
-                        def awsAccountResult = sh(
-                            returnStdout: true,
-                            script: 'aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "FAILED"'
-                        ).trim()
-                        
-                        if (awsAccountResult == "FAILED" || awsAccountResult == "") {
-                            echo "⚠️ Could not get AWS Account ID from AWS CLI, using fallback..."
-                            // Fallback: try to extract from AWS CLI config or use a default
-                            env.AWS_ACCOUNT_ID = "123456789012" // Replace with your actual account ID
-                            echo "⚠️ Using fallback AWS Account ID: ${env.AWS_ACCOUNT_ID}"
-                            echo "⚠️ Please ensure AWS CLI is properly configured with credentials"
-                        } else {
-                            env.AWS_ACCOUNT_ID = awsAccountResult
-                            echo "✅ AWS Account ID: ${env.AWS_ACCOUNT_ID}"
-                        }
-                        
-                        // Update ECR registry URL - force string interpolation
-                        def awsAccountId = env.AWS_ACCOUNT_ID
-                        def awsRegion = env.AWS_REGION
-                        def ecrRepo = env.ECR_REPOSITORY
-                        def imageTag = env.IMAGE_TAG
-                        
-                        env.ECR_REGISTRY = "${awsAccountId}.dkr.ecr.${awsRegion}.amazonaws.com"
-                        env.FULL_IMAGE_URI = "${awsAccountId}.dkr.ecr.${awsRegion}.amazonaws.com/${ecrRepo}:${imageTag}"
-                        
-                        echo "✅ ECR Registry: ${env.ECR_REGISTRY}"
-                        echo "✅ Full Image URI: ${env.FULL_IMAGE_URI}"
-                        
-                        echo "✅ AWS_ACCOUNT_ID stage completed successfully"
-                        
-                    } catch (Exception e) {
-                        env.CURRENT_STAGE = 'AWS_ACCOUNT_ID_FAILED'
-                        echo "❌ AWS_ACCOUNT_ID stage failed: ${e.getMessage()}"
-                        throw e
-                    }
-                }
-            }
-        }
-        
-        stage('Docker Build') {
-            steps {
-                script {
-                    env.CURRENT_STAGE = 'DOCKER_BUILD'
-                    echo "=== STAGE: ${env.CURRENT_STAGE} ==="
-                    
-                    try {
-                        echo "Building Docker image..."
-                        echo "Image URI: ${env.FULL_IMAGE_URI}"
-                        
-                        // Check Docker daemon access and current user
-                        sh 'whoami'
-                        sh 'groups'
-                        sh 'ls -la /var/run/docker.sock'
-                        
-                        // Try docker without sudo first, then with sudo as fallback
-                        def dockerCmd = ""
-                        try {
-                            sh 'docker version'
-                            dockerCmd = "docker"
-                            echo "✅ Docker accessible without sudo"
-                        } catch (Exception e) {
-                            echo "⚠️ Docker not accessible without sudo, trying with sudo..."
-                            sh 'sudo docker version'
-                            dockerCmd = "sudo docker"
-                            echo "✅ Docker accessible with sudo"
-                        }
-                        
-                        // Build Docker image
-                        sh """
-                            ${dockerCmd} build -t ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} .
-                            ${dockerCmd} tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.FULL_IMAGE_URI}
-                            ${dockerCmd} tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
-                        """
-                        
-                        // List Docker images
-                        sh "${dockerCmd} images | grep cfx-test-nodejs || echo 'No cfx-test-nodejs images found'"
-                        
-                        // Store docker command for later stages
-                        env.DOCKER_CMD = dockerCmd
-                        
-                        echo "✅ DOCKER_BUILD stage completed successfully"
-                        
-                    } catch (Exception e) {
-                        env.CURRENT_STAGE = 'DOCKER_BUILD_FAILED'
-                        echo "❌ DOCKER_BUILD stage failed: ${e.getMessage()}"
-                        echo "💡 To fix permanently, run: sudo usermod -aG docker jenkins && sudo systemctl restart jenkins"
-                        throw e
-                    }
-                }
-            }
-        }
-        
-        stage('ECR Login & Push') {
-            steps {
-                script {
-                    env.CURRENT_STAGE = 'ECR_PUSH'
-                    echo "=== STAGE: ${env.CURRENT_STAGE} ==="
-        
-                    // 1. Get AWS account ID dynamically
+                    // Get AWS Account ID
                     env.AWS_ACCOUNT_ID = sh(
-                        script: "aws sts get-caller-identity --query Account --output text",
-                        returnStdout: true
+                        returnStdout: true,
+                        script: 'aws sts get-caller-identity --query Account --output text'
                     ).trim()
+                    
+                    env.ECR_REGISTRY = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+                    env.FULL_IMAGE_URI = "${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}"
+                    
+                    echo "Building image: ${env.FULL_IMAGE_URI}"
+                }
+            }
+        }
         
-                    // 2. Now set ECR registry and image URI using updated AWS_ACCOUNT_ID
-                    def ECR_REGISTRY = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
-                    def FULL_IMAGE_URI = "${ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}"
-        
-                    echo "✅ AWS_ACCOUNT_ID: ${env.AWS_ACCOUNT_ID}"
-                    echo "✅ ECR_REGISTRY: ${ECR_REGISTRY}"
-                    echo "✅ FULL_IMAGE_URI: ${FULL_IMAGE_URI}"
-        
-                    // 3. Login to ECR
+        stage('Build & Push') {
+            steps {
+                script {
+                    // ECR Login
                     sh """
-                        aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                        aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.ECR_REGISTRY}
                     """
-        
-                    echo "✅ ECR login successful"
-        
-                    // 4. Check if repository exists or create it
+                    
+                    // Create repository if it doesn't exist
                     sh """
                         aws ecr describe-repositories --repository-names ${env.ECR_REPOSITORY} --region ${env.AWS_REGION} || \
                         aws ecr create-repository --repository-name ${env.ECR_REPOSITORY} --region ${env.AWS_REGION}
                     """
-        
-                    echo "✅ ECR repository verified/created"
-        
-                    // 5. Tag and push Docker image
-                    def dockerCmd = env.DOCKER_CMD ?: "docker" // or sudo docker if needed
-                    def imageName = "${env.ECR_REPOSITORY}"
-                    def imageTag = "${env.BUILD_NUMBER}"
-                    def fullImageUri = "${ECR_REGISTRY}/${imageName}:${imageTag}"
-                    def latestImageUri = "${ECR_REGISTRY}/${imageName}:latest"
                     
+                    // Build and push
                     sh """
-                        # Build the image with both tags
-                        ${dockerCmd} build -t ${imageName}:${imageTag} -t ${imageName}:latest .
-                    
-                        # Tag both for ECR
-                        ${dockerCmd} tag ${imageName}:${imageTag} ${fullImageUri}
-                        ${dockerCmd} tag ${imageName}:latest ${latestImageUri}
-                    
-                        # Push both tags to ECR
-                        ${dockerCmd} push ${fullImageUri}
-                        ${dockerCmd} push ${latestImageUri}
+                        docker build -t ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} .
+                        docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.FULL_IMAGE_URI}
+                        docker tag ${env.ECR_REPOSITORY}:${env.IMAGE_TAG} ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
+                        docker push ${env.FULL_IMAGE_URI}
+                        docker push ${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:latest
                     """
-        
-                    echo "✅ Image pushed to ECR successfully"
-                }
-            }
-        }
-
-        
-        stage('Configure Kubectl') {
-            steps {
-                script {
-                    env.CURRENT_STAGE = 'KUBECTL_CONFIG'
-                    echo "=== STAGE: ${env.CURRENT_STAGE} ==="
-                    
-                    try {
-                        echo "Configuring kubectl for EKS cluster..."
-                        
-                        // Update kubeconfig for EKS
-                       withEnv(["KUBECONFIG=${env.KUBECONFIG}"]) {
-                        sh """
-                            echo "== PATH =="
-                            echo \$PATH
-                            echo "== AWS CLI =="
-                            which aws && aws --version
-                            echo "== Kubeconfig =="
-                            aws sts get-caller-identity
-                            aws eks --region us-east-1 update-kubeconfig --name ${env.EKS_CLUSTER_NAME} --kubeconfig ${env.KUBECONFIG}
-                            echo "== Kubeconfig current context =="
-                            kubectl config current-context
-                            echo "== Nodes =="
-                            kubectl get nodes
-                        """
-                    }
-                        echo "✅ kubectl configured successfully"
-                        echo "✅ KUBECTL_CONFIG stage completed successfully"
-                        
-                    } catch (Exception e) {
-                        env.CURRENT_STAGE = 'KUBECTL_CONFIG_FAILED'
-                        echo "❌ KUBECTL_CONFIG stage failed: ${e.getMessage()}"
-                        throw e
-                    }
                 }
             }
         }
@@ -285,90 +59,32 @@ pipeline {
         stage('Deploy to EKS') {
             steps {
                 script {
-                    env.CURRENT_STAGE = 'EKS_DEPLOY'
-                    echo "=== STAGE: ${env.CURRENT_STAGE} ==="
+                    // Configure kubectl
+                    sh """
+                        aws eks --region ${env.AWS_REGION} update-kubeconfig --name ${env.EKS_CLUSTER_NAME} --kubeconfig ${env.KUBECONFIG}
+                        export KUBECONFIG=${env.KUBECONFIG}
+                        
+                        # Update image in deployment.yml and apply
+                        sed -i 's|IMAGE_PLACEHOLDER|${env.FULL_IMAGE_URI}|g' deployment.yml
+                        kubectl apply -f deployment.yml
+                        kubectl rollout status deployment/cfx-nodejs-app --timeout=300s
+                    """
                     
+                    // Get service URL (optional)
                     try {
-                        echo "Deploying to EKS cluster..."
+                        env.APP_URL = sh(
+                            returnStdout: true,
+                            script: """
+                                export KUBECONFIG=${env.KUBECONFIG}
+                                kubectl get service cfx-nodejs-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo 'pending'
+                            """
+                        ).trim()
                         
-                        // Create Kubernetes deployment manifest
-                        writeFile file: 'k8s-deployment.yaml', text: """
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: cfx-nodejs-app
-  labels:
-    app: cfx-nodejs-app
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: cfx-nodejs-app
-  template:
-    metadata:
-      labels:
-        app: cfx-nodejs-app
-    spec:
-      containers:
-      - name: cfx-nodejs-app
-        image: ${env.FULL_IMAGE_URI}
-        ports:
-        - containerPort: 3000
-        env:
-        - name: BUILD_NUMBER
-          value: "${env.BUILD_NUMBER}"
-        - name: GIT_COMMIT
-          value: "${env.GIT_COMMIT}"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: cfx-nodejs-service
-spec:
-  selector:
-    app: cfx-nodejs-app
-  ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 3000
-  type: LoadBalancer
-"""
-                        
-                        // Apply deployment
-                        sh """
-                            export KUBECONFIG=${env.KUBECONFIG}
-                            kubectl apply -f k8s-deployment.yaml
-                            kubectl rollout status deployment/cfx-nodejs-app --timeout=300s
-                            kubectl get deployments
-                            kubectl get services
-                            kubectl get pods
-                        """
-                        
-                        // Get service URL
-                        try {
-                            def serviceUrl = sh(
-                                returnStdout: true,
-                                script: """
-                                    export KUBECONFIG=${env.KUBECONFIG}
-                                    kubectl get service cfx-nodejs-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-                                """
-                            ).trim()
-                            
-                            if (serviceUrl) {
-                                echo "🌐 Application URL: http://${serviceUrl}"
-                                env.APP_URL = "http://${serviceUrl}"
-                            }
-                        } catch (Exception e) {
-                            echo "⚠️ Could not get service URL: ${e.getMessage()}"
+                        if (env.APP_URL && env.APP_URL != 'pending') {
+                            echo "🌐 Application URL: http://${env.APP_URL}"
                         }
-                        
-                        echo "✅ EKS_DEPLOY stage completed successfully"
-                        env.CURRENT_STAGE = 'ALL_STAGES_COMPLETED'
-                        
                     } catch (Exception e) {
-                        env.CURRENT_STAGE = 'EKS_DEPLOY_FAILED'
-                        echo "❌ EKS_DEPLOY stage failed: ${e.getMessage()}"
-                        throw e
+                        echo "Service URL not yet available"
                     }
                 }
             }
@@ -378,65 +94,26 @@ spec:
     post {
         always {
             script {
-                try {
-                    echo "=== BUILD SUMMARY ==="
-                    echo "Build Number: ${env.BUILD_NUMBER}"
-                    echo "Git Commit: ${env.GIT_COMMIT}"
-                    echo "Image Tag: ${env.IMAGE_TAG}"
-                    echo "ECR Repository: ${env.ECR_REPOSITORY}"
-                    echo "EKS Cluster: ${env.EKS_CLUSTER_NAME}"
-                    echo "AWS Region: ${env.AWS_REGION}"
-                    echo "Build Status: ${currentBuild.currentResult}"
-                    echo "Final Stage: ${env.CURRENT_STAGE}"
-                    if (env.APP_URL) {
-                        echo "Application URL: ${env.APP_URL}"
-                    }
-                    echo "========================="
-                    
-                    // Cleanup
-                    def dockerCmd = env.DOCKER_CMD ?: "sudo docker"
-                    sh "${dockerCmd} system prune -f || true"
-                    sh 'rm -f ${env.KUBECONFIG} || true'
-                    
-                } catch (Exception e) {
-                    echo "Error in post always: ${e.getMessage()}"
+                echo "=== BUILD SUMMARY ==="
+                echo "Build: ${env.BUILD_NUMBER}"
+                echo "Image: ${env.FULL_IMAGE_URI}"
+                echo "Status: ${currentBuild.currentResult}"
+                if (env.APP_URL && env.APP_URL != 'pending') {
+                    echo "URL: http://${env.APP_URL}"
                 }
+                
+                // Cleanup
+                sh 'docker system prune -f || true'
+                sh 'rm -f ${env.KUBECONFIG} || true'
             }
         }
         
         success {
-            script {
-                try {
-                    echo "🎉 Deployment completed successfully!"
-                    echo "✅ Application: ${env.ECR_REPOSITORY}"
-                    echo "✅ Version: ${env.IMAGE_TAG}"
-                    echo "✅ Cluster: ${env.EKS_CLUSTER_NAME}"
-                    echo "✅ Region: ${env.AWS_REGION}"
-                    if (env.APP_URL) {
-                        echo "🌐 Access your application at: ${env.APP_URL}"
-                    }
-                } catch (Exception e) {
-                    echo "Error in post success: ${e.getMessage()}"
-                }
-            }
+            echo "🎉 Deployment successful!"
         }
         
         failure {
-            script {
-                try {
-                    echo "❌ Deployment failed!"
-                    echo "💥 FAILURE SUMMARY:"
-                    echo "- Application: ${env.ECR_REPOSITORY}"
-                    echo "- Version: ${env.IMAGE_TAG}"
-                    echo "- Cluster: ${env.EKS_CLUSTER_NAME}"
-                    echo "- Region: ${env.AWS_REGION}"
-                    echo "- Build URL: ${env.BUILD_URL}"
-                    echo "- Failed Stage: ${env.CURRENT_STAGE}"
-                    
-                } catch (Exception e) {
-                    echo "Error in post failure: ${e.getMessage()}"
-                }
-            }
+            echo "❌ Deployment failed! Check logs above."
         }
     }
 }
