@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: nodejs-app-ingress
+  name: multi-app-ingress  # Renamed to reflect multiple apps
   namespace: default
   annotations:
     kubernetes.io/ingress.class: alb
@@ -12,11 +12,12 @@ metadata:
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
     alb.ingress.kubernetes.io/success-codes: '200'
-    alb.ingress.kubernetes.io/tags: Environment=production,Application=nodejs-app
+    alb.ingress.kubernetes.io/tags: Environment=production,Application=multi-app
   labels:
-    app: nodejs-app
+    app: multi-app
 spec:
   rules:
+  # Node.js app
   - host: nodejs.rinando.my.id
     http:
       paths:
@@ -25,6 +26,17 @@ spec:
         backend:
           service:
             name: cfx-nodejs-service
+            port:
+              number: 80
+  # Go API app
+  - host: api.rinando.my.id
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: go-api-service  # You'll need to create this service
             port:
               number: 80
 ---
@@ -46,5 +58,26 @@ spec:
     ports:
     - protocol: TCP
       port: 3000
+  egress:
+  - {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: go-api-network-policy
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: go-api
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 8080  # Assuming Go app runs on port 8080
   egress:
   - {}
