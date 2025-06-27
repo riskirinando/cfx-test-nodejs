@@ -65,7 +65,7 @@ app.get('/', (req, res) => {
     </head>
     <body>
         <div class="container">
-            <h1>🚀 Node.js Application on Amazon EKS Fargate Cluster</h1>
+            <h1>🚀 Node.js Application on Amazon EKS Cluster</h1>
             <div class="status">
                 ✅ Application is running successfully!
             </div>
