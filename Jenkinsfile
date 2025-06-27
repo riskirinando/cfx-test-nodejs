@@ -64,9 +64,9 @@ pipeline {
                         aws eks --region ${env.AWS_REGION} update-kubeconfig --name ${env.EKS_CLUSTER_NAME} --kubeconfig ${env.KUBECONFIG}
                         export KUBECONFIG=${env.KUBECONFIG}
                         
-                        # Update image in deployment.yml and apply
-                        sed -i 's|IMAGE_PLACEHOLDER|${env.FULL_IMAGE_URI}|g' deployment.yml
-                        kubectl apply -f deployment.yml
+                        # Update image in k8s/deployment.yml and apply
+                        sed -i 's|IMAGE_PLACEHOLDER|${env.FULL_IMAGE_URI}|g' k8s/deployment.yml
+                        kubectl apply -f k8s/deployment.yml
                         kubectl rollout status deployment/cfx-nodejs-app --timeout=300s
                     """
                     
