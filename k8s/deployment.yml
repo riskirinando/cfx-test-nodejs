@@ -67,7 +67,6 @@ spec:
         emptyDir: {}
       securityContext:
         fsGroup: 1001
-      serviceAccountName: cfx-nodejs-app-sa
 ---
 apiVersion: v1
 kind: Service
