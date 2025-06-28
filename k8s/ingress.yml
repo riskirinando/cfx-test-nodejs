@@ -36,7 +36,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: go-web-app-service 
+            name: cfx-go-service
             port:
               number: 80
 ---
@@ -64,12 +64,12 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: go-api-network-policy
+  name: go-web-app-network-policy
   namespace: default
 spec:
   podSelector:
     matchLabels:
-      app: go-api
+      app: go-web-app
   policyTypes:
   - Ingress
   - Egress
