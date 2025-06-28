@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: multi-app-ingress  # Renamed to reflect multiple apps
+  name: multi-app-ingress  
   namespace: default
   annotations:
     kubernetes.io/ingress.class: alb
@@ -36,7 +36,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: go-api-service  # You'll need to create this service
+            name: go-web-app-service 
             port:
               number: 80
 ---
@@ -78,6 +78,6 @@ spec:
     - namespaceSelector: {}
     ports:
     - protocol: TCP
-      port: 8080  # Assuming Go app runs on port 8080
+      port: 8080  
   egress:
   - {}
