@@ -184,19 +184,4 @@ kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-cont
 kubectl get networkpolicy
 kubectl describe networkpolicy nodejs-app-network-policy
 
-# Access application via custom domain
-curl -H "Host: nodejs.rinando.my.id" http://<alb-dns-name>
-```
-
-### Service Account Setup
-
-Create the required service account:
-
-```bash
-# Create service account
-kubectl create serviceaccount nodejs-app-sa
-
-# If using IAM roles for service accounts (IRSA)
-kubectl annotate serviceaccount nodejs-app-sa \
-  eks.amazonaws.com/role-arn=arn:aws:iam::112113402575:role/NodejsAppRole
 ```
