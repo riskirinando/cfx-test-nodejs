@@ -75,11 +75,11 @@ metadata:
   name: cfx-nodejs-service
   namespace: default
   labels:
-    app: nodejs-app
+    app: cfx-nodejs-app
 spec:
   type: ClusterIP
   selector:
-    app: nodejs-app
+    app: cfx-nodejs-app
   ports:
   - name: http
     port: 80
