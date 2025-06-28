@@ -54,7 +54,7 @@ docker run -p 3000:3000 cfx-test-nodejs
 
 The pipeline automatically:
 1. Builds Docker image
-2. Pushes to ECR: `112113402575.dkr.ecr.us-east-1.amazonaws.com/cfx-test-nodejs`
+2. Pushes to ECR: `<account-id>.dkr.ecr.us-east-1.amazonaws.com/cfx-test-nodejs`
 3. Deploys to EKS
 
 ### Kubernetes Setup
