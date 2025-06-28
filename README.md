@@ -102,6 +102,7 @@ kubectl port-forward service/cfx-nodejs-service 8080:80
 ├── Jenkinsfile         # CI/CD pipeline
 ├── app.js              # Main application
 ├── package.json        # Dependencies
+├── package-lock.json        # Dependencies
 ├── k8s/
 │   ├── deployment.yml  # K8s deployment
 │   └── ingress.yml     # ALB ingress
