@@ -1,24 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nodejs-app
+  name: cfx-nodejs-app
   namespace: default
   labels:
-    app: nodejs-app
+    app: cfx-nodejs-app
     version: v1
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: nodejs-app
+      app: cfx-nodejs-app
   template:
     metadata:
       labels:
-        app: nodejs-app
+        app: cfx-nodejs-app
         version: v1
     spec:
       containers:
-      - name: nodejs-app
+      - name: cfx-nodejs-app
         image: 112113402575.dkr.ecr.us-east-1.amazonaws.com/cfx-test-nodejs:latest
         ports:
         - containerPort: 3000
@@ -67,7 +67,7 @@ spec:
         emptyDir: {}
       securityContext:
         fsGroup: 1001
-      serviceAccountName: nodejs-app-sa
+      serviceAccountName: cfx-nodejs-app-sa
 ---
 apiVersion: v1
 kind: Service
