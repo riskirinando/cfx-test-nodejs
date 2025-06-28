@@ -1,52 +1,48 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nodejs-app
+  name: go-web-app
   namespace: default
   labels:
-    app: nodejs-app
-    version: v1
+    app: go-web-app
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: nodejs-app
+      app: go-web-app
   template:
     metadata:
       labels:
-        app: nodejs-app
-        version: v1
+        app: go-web-app
     spec:
       containers:
-      - name: nodejs-app
-        image: 112113402575.dkr.ecr.us-east-1.amazonaws.com/cfx-test-nodejs:latest
+      - name: go-web-app
+        image: 112113402575.dkr.ecr.us-east-1.amazonaws.com/cfx-test-go:latest
         ports:
-        - containerPort: 3000
+        - containerPort: 8080
           name: http
         env:
-        - name: NODE_ENV
-          value: "production"
         - name: PORT
-          value: "3000"
+          value: "8080"
         resources:
           requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
             memory: "128Mi"
             cpu: "100m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
         livenessProbe:
           httpGet:
             path: /health
-            port: 3000
+            port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /health
-            port: 3000
+            path: /ready
+            port: 8080
           initialDelaySeconds: 5
           periodSeconds: 5
           timeoutSeconds: 3
@@ -67,22 +63,20 @@ spec:
         emptyDir: {}
       securityContext:
         fsGroup: 1001
-      serviceAccountName: nodejs-app-sa
 ---
-
 apiVersion: v1
 kind: Service
 metadata:
-  name: cfx-nodejs-service
+  name: cfx-go-service
   namespace: default
   labels:
-    app: cfx-nodejs-app
+    app: go-web-app
 spec:
   type: ClusterIP
   selector:
-    app: cfx-nodejs-app 
+    app: go-web-app
   ports:
   - name: http
     port: 80
-    targetPort: 3000
+    targetPort: 8080
     protocol: TCP
