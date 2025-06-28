@@ -20,9 +20,7 @@ app.get('/health', (req, res) => {
 // API routes
 app.get('/api/users', (req, res) => {
   const users = [
-    { id: 1, name: 'John Doe', email: 'john@example.com' },
-    { id: 2, name: 'Jane Smith', email: 'jane@example.com' },
-    { id: 3, name: 'Bob Johnson', email: 'bob@example.com' }
+    { id: 1, name: 'Riski Rinando', email: 'riskirinando@gmail.com' }
   ];
   res.json(users);
 });
