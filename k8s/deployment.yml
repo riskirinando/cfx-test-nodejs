@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: cfx-nodejs-app
-        image: 112113402575.dkr.ecr.us-east-1.amazonaws.com/cfx-test-nodejs:latest
+        image: <account-id>.dkr.ecr.us-east-1.amazonaws.com/cfx-test-nodejs:latest
         ports:
         - containerPort: 3000
           name: http
