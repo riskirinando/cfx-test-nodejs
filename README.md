@@ -112,9 +112,9 @@ kubectl port-forward service/cfx-nodejs-service 8080:80
 ## 🌐 Live Application
 
 **URL:** 
-- Production: https://nodejs.rinando.my.id
-- Health Check: https://nodejs.rinando.my.id/health
-- API Endpoints: https://nodejs.rinando.my.id/api/users
+- Production: http://nodejs.rinando.my.id
+- Health Check: http://nodejs.rinando.my.id/health
+- API Endpoints: http://nodejs.rinando.my.id/api/users
 ---
 
 **Stack:** Node.js • Docker • Jenkins • Amazon EKS • AWS ALB
