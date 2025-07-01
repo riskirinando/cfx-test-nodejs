@@ -115,6 +115,8 @@ kubectl port-forward service/cfx-nodejs-service 8080:80
 - Production: http://nodejs.rinando.my.id
 - Health Check: http://nodejs.rinando.my.id/health
 - API Endpoints: http://nodejs.rinando.my.id/api/users
+  ![image](https://github.com/user-attachments/assets/f78aca61-db87-469b-8bdd-f7a231e694c8)
+
 ---
 
 **Stack:** Node.js • Docker • Jenkins • Amazon EKS • AWS ALB
